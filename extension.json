@@ -1,0 +1,75 @@
+{
+    "id": "ibm.devops.services.pipeline.appscan.dynamic.builder",
+    "version": 1,
+    "name_key": "ExtName",
+    "desc_key": "ExtDesc",
+    "extension_type": "Build",
+    "message_key": "ExtMessage",
+    "inputs": [
+        {
+            "type": "Bluemix",
+            "inclusion" : "always"
+        }
+    ],
+    "params": [
+        {
+            "name": "SETUP_SERVICE_SPACE",
+            "type": "Text",
+            "required": "true",
+            "default_value": "false",
+            "label_key": "ACCEPT_KEY",
+            "desc_key": "ACCEPT_DESC"
+        },
+        {
+            "name": "SUBMISSION_NAME",
+            "type": "Text",
+            "required": "false",
+            "label_key": "SUBMISSION_NAME_KEY",
+            "desc_key": "SUBMISSION_NAME_DESC"
+        },
+        {
+            "name": "TARGET",
+            "type": "Text",
+            "required": "false",
+            "label_key": "TARGET_KEY",
+            "desc_key": "TARGET_DESC"
+        }
+    ],
+    "outputs": [
+        {
+            "type": "Artifacts",
+            "inclusion" : "always"
+        }
+    ],
+    "execution": {
+        "type": "JenkinsDocker",
+        "shell": "#!/bin/bash
+export INIT_START_TIME=$(date +\"%s\")
+export SUBMISSION_NAME=#SUBMISSION_NAME#
+export SETUP_SERVICE_SPACE=#SETUP_SERVICE_SPACE#
+export TARGET=#TARGET#
+set +x
+set +e
+
+# collect information that the extension installs on the container 
+if [[ $DEBUG -eq 1 ]]; then
+  dpkg -l | grep '^ii' > $EXT_DIR/pkglist
+fi 
+
+. $EXT_DIR/_init.sh
+
+if [[ $DEBUG -eq 1 ]]; then
+  dpkg -l | grep '^ii' > $EXT_DIR/pkglist2
+  diff $EXT_DIR/pkglist $EXT_DIR/pkglist2
+fi
+
+INIT_END_TIME=$(date +\"%s\")
+INIT_EST_TIME=$(($INIT_END_TIME-$INIT_START_TIME))
+echo -e \"Init runtime of `date -u -d @\"$INIT_EST_TIME\" +\'%-Mm %-Ss\'`\"
+
+    }
+    },
+    "project": "https://hub.jazz.net/project/alchemy/Alchemy-Ostanes",
+    "project_example": "https://hub.jazz.net/pipeline/rjminsha/ice-pipeline_demo",
+    "project_contact": "rjminsha@us.ibm.com"
+}
