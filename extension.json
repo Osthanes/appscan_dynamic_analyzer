@@ -49,7 +49,6 @@ export USE_CACHED_LAYERS=#USE_CACHED_LAYERS#
 set +x 
 set +e 
 . $EXT_DIR/_init.sh
-
 echo -e \"${red}Not implemented${no_color}\"
     }
     },
