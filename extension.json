@@ -31,6 +31,7 @@
             "name": "TARGET",
             "type": "Text",
             "required": "false",
+            "default_value": "/",
             "label_key": "TARGET_KEY",
             "desc_key": "TARGET_DESC"
         }
