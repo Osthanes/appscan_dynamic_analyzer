@@ -50,7 +50,7 @@ set +x
 set +e 
 . $EXT_DIR/_init.sh
 
-/bin/bash -e #COMMAND#"
+echo \"${red}Not implemented${no_color}\"
     }
     },
     "project": "https://hub.jazz.net/project/alchemy/Alchemy-Ostanes",
