@@ -3,7 +3,7 @@
     "version": 1,
     "name_key": "ExtName",
     "desc_key": "ExtDesc",
-    "extension_type": "Build",
+    "extension_type": "Test",
     "message_key": "ExtMessage",
     "inputs": [
         {
