@@ -21,13 +21,6 @@
             "desc_key": "ACCEPT_DESC"
         },
         {
-            "name": "SUBMISSION_NAME",
-            "type": "Text",
-            "required": "false",
-            "label_key": "SUBMISSION_NAME_KEY",
-            "desc_key": "SUBMISSION_NAME_DESC"
-        },
-        {
             "name": "TARGET",
             "type": "Text",
             "required": "false",
