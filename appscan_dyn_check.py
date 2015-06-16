@@ -498,6 +498,8 @@ def appscan_login (userid, password):
     APPSCAN_TOKEN = rj["Token"]
     if not APPSCAN_TOKEN:
         raise Exception("Unable to login to Dynamic Analysis service")
+    else:
+        APPSCAN_TOKEN = "Bearer " + APPSCAN_TOKEN
 
 # submit a base url to appscan for analysis
 def appscan_submit (baseurl, baseuser=None, basepwd=None):
