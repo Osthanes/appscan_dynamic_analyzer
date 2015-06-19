@@ -56,6 +56,7 @@ APPSCAN_SERVER = ""
 AD_BASE_URL = None
 AD_USER = None
 AD_PWD = None
+IDS_PROJECT_NAME = None
 # our auth token
 APPSCAN_TOKEN = None
 
@@ -66,7 +67,7 @@ APPSCAN_SCAN_TYPE_STAGING    = 1
 
 # check cli args, set globals appropriately
 def parse_args ():
-    global APPSCAN_SERVER, AD_BASE_URL, AD_USER, AD_PWD
+    global APPSCAN_SERVER, AD_BASE_URL, AD_USER, AD_PWD, IDS_PROJECT_NAME
     parsed_args = {}
     parsed_args['loginonly'] = False
     parsed_args['checkstate'] = False
@@ -93,6 +94,9 @@ def parse_args ():
     AD_BASE_URL = os.environ.get('AD_BASE_URL')
     AD_USER = os.environ.get('AD_USER')
     AD_PWD = os.environ.get('AD_PWD')
+    IDS_PROJECT_NAME = os.environ.get('IDS_PROJECT_NAME')
+    if IDS_PROJECT_NAME:
+        IDS_PROJECT_NAME = IDS_PROJECT_NAME.replace(" | ", "-")
 
     return parsed_args
 
@@ -473,8 +477,8 @@ def get_scanname_template (include_version=True):
     # check the env for name of the scan, else use default
     if os.environ.get('SUBMISSION_NAME'):
         scanname=os.environ.get('SUBMISSION_NAME')
-    elif os.environ.get('IDS_PROJECT_NAME'):
-        scanname=os.environ.get('IDS_PROJECT_NAME').replace(" | ", "-")
+    elif IDS_PROJECT_NAME:
+        scanname = IDS_PROJECT_NAME
     else:
         scanname=DEFAULT_SCANNAME
 
@@ -519,7 +523,7 @@ def appscan_login (userid, password):
         APPSCAN_TOKEN = "Bearer " + APPSCAN_TOKEN
 
 # submit a base url to appscan for analysis
-def appscan_submit (baseurl, baseuser=None, basepwd=None):
+def appscan_submit (baseurl, baseuser=None, basepwd=None, oldjobs=None):
     if not baseurl:
         raise Exception("No Base URL to scan")
 
@@ -552,7 +556,16 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None):
         LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if (res.status_code < 200) or (res.status_code > 204):
-        raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
+        msg = "Error submitting scan to Dynamic Analysis service (list), status code " + str(res.status_code)
+        if res.text:
+            try:
+                res_err = json.loads(res.text)
+                if res_err and res_err["Message"]:
+                    msg = msg + " with message \"" + str(res_err["Message"]) + "\""
+            except Exception:
+                if DEBUG:
+                    LOGGER.debug("unable to parse returned error data")
+        raise Exception(msg)
 
     rj = res.json()
     scanlist = []
@@ -850,23 +863,25 @@ try:
         print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
         sys.exit(0)
 
+    # see if we have related jobs (need this for both paths)
+    joblist = check_for_existing_job(ignore_older_jobs=False)
     # if checkstate, don't really do a scan, just check state of current outstanding ones
     if parsed_args['checkstate']:
         # for checkstate, don't wait, just check current
         WAIT_TIME = 0
-        # see if we have related jobs
-        joblist = check_for_existing_job()
         if joblist == None:
             # no related jobs, get whole list
             joblist = appscan_list()
     else:
+        # save list of old jobs, will need this if it's a rescan
+        old_joblist = joblist
         # if the job we would run is already up (and either pending or complete),
         # we just want to get state (and wait for it if needed), not create a whole
         # new submission (check current version only at this point)
-        joblist = check_for_existing_job(False)
+        joblist = check_for_existing_job(ignore_older_jobs=True)
         if joblist == None:
             LOGGER.info("Submitting URL for analysis")
-            joblist = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD)
+            joblist = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD, oldjobs=old_joblist)
             LOGGER.info("Waiting for analysis to complete")
         else:
             LOGGER.info("Existing job found, connecting")
@@ -874,6 +889,7 @@ try:
     # check on pending jobs, waiting if appropriate
     all_jobs_complete, high_issue_count, med_issue_count = wait_for_scans(joblist)
 
+    # prebuild common substrings
     dash = find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
     # if we didn't successfully complete jobs, return that we timed out
     if not all_jobs_complete:
