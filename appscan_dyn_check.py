@@ -42,12 +42,14 @@ DEFAULT_SCANNAME="webscan"
 DEFAULT_BRIDGEAPP_NAME="pipeline_bridge_app"
 DEFAULT_APPSCAN_SERVER="https://appscan.ibmcloud.com"
 
+EXT_DIR=os.getenv('EXT_DIR', ".")
 DEBUG=os.environ.get('DEBUG')
 # time to sleep between checks when waiting on pending jobs, in seconds
 SLEEP_TIME=15
 
 SCRIPT_START_TIME = timeit.default_timer()
 LOGGER = None
+FULL_WAIT_TIME = 5
 WAIT_TIME = 0
 # scan info, loaded from ENV
 APPSCAN_SERVER = ""
@@ -147,12 +149,16 @@ def setup_logging ():
 # return is the expected max time left in seconds we're allowed to wait
 # for pending jobs to complete
 def get_remaining_wait_time (first = False):
+    global FULL_WAIT_TIME
     if first:
         # first time through, set up the var from env
         try:
-            time_to_wait = int(os.getenv('WAIT_TIME', "5")) * 60
+            FULL_WAIT_TIME = int(os.getenv('WAIT_TIME', "5"))
         except ValueError:
-            time_to_wait = 300
+            FULL_WAIT_TIME = 5
+
+        # convert to seconds
+        time_to_wait = FULL_WAIT_TIME * 60
 
         # and (if not 0) subtract out init time
         if time_to_wait != 0:
@@ -754,6 +760,7 @@ def wait_for_scans (joblist):
     all_jobs_complete = True
     # number of high sev issues in completed jobs
     high_issue_count = 0
+    med_issue_count = 0
     dash = find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
     for jobid in joblist:
         try:
@@ -764,6 +771,7 @@ def wait_for_scans (joblist):
                     results = appscan_info(jobid)
                     if get_state_successful(state):
                         high_issue_count += results["NHighIssues"]
+                        med_issue_count += results["NMediumIssues"]
                         LOGGER.info("Analysis successful (" + results["Name"] + ")")
                         #print "\tOther Message : " + msg
                         #appscan_get_result(jobid)
@@ -805,7 +813,7 @@ def wait_for_scans (joblist):
             if DEBUG:
                 LOGGER.debug("exception in wait_for_scans: " + str(e))
 
-    return all_jobs_complete, high_issue_count
+    return all_jobs_complete, high_issue_count, med_issue_count
 
 
 # begin main execution sequence
@@ -818,6 +826,18 @@ try:
 
     LOGGER = setup_logging()
     WAIT_TIME = get_remaining_wait_time(first = True)
+    # send slack notification 
+    if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
+        command='{path}/utilities/sendMessage.sh -l info -m \"Starting dynamic security scan\"'.format(path=EXT_DIR)
+        if DEBUG:
+            print "running command " + command 
+        proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
+        out, err = proc.communicate();
+        LOGGER.debug(out)
+    else:
+        if DEBUG:
+            print "sendMessage.sh not found, notifications not attempted"
+
     LOGGER.info("Getting credentials for Dynamic Analysis service")
     creds = get_credentials_from_bound_app(service=DYNAMIC_ANALYSIS_SERVICE)
     LOGGER.info("Connecting to Dynamic Analysis service")
@@ -852,18 +872,44 @@ try:
             LOGGER.info("Existing job found, connecting")
 
     # check on pending jobs, waiting if appropriate
-    all_jobs_complete, high_issue_count = wait_for_scans(joblist)
+    all_jobs_complete, high_issue_count, med_issue_count = wait_for_scans(joblist)
 
+    dash = find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
     # if we didn't successfully complete jobs, return that we timed out
     if not all_jobs_complete:
+        # send slack notification 
+        if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
+            command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> did not complete within {wait} minutes.  Stage will need to be re-run after the scan completes.\"'.format(path=EXT_DIR,url=dash,wait=FULL_WAIT_TIME)
+            proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
+            out, err = proc.communicate();
+            LOGGER.debug(out)
+
         endtime = timeit.default_timer()
         print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
         sys.exit(2)
     else:
+        if high_issue_count > 0:
+            # send slack notification 
+            if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
+                command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> completed with {issues} high issues detected in the application.\"'.format(path=EXT_DIR,url=dash, issues=high_issue_count)
+                proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
+                out, err = proc.communicate();
+                LOGGER.debug(out)
+
+            endtime = timeit.default_timer()
+            print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
+            sys.exit(1)
+
+        if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
+            if med_issue_count > 0: 
+                command='SLACK_COLOR=\"warning\" {path}/utilities/sendMessage.sh -l good -m \"<{url}|Dynamic security scan> completed with no major issues.\"'.format(path=EXT_DIR,url=dash)
+            else:            
+                command='{path}/utilities/sendMessage.sh -l good -m \"<{url}|Dynamic security scan> completed with no major issues.\"'.format(path=EXT_DIR,url=dash)
+            proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
+            out, err = proc.communicate();
+            LOGGER.debug(out)
         endtime = timeit.default_timer()
         print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
-        if high_issue_count > 0:
-            sys.exit(1)
         sys.exit(0)
 
 except Exception, e:
