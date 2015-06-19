@@ -49,7 +49,11 @@ SLEEP_TIME=15
 SCRIPT_START_TIME = timeit.default_timer()
 LOGGER = None
 WAIT_TIME = 0
+# scan info, loaded from ENV
 APPSCAN_SERVER = ""
+AD_BASE_URL = None
+AD_USER = None
+AD_PWD = None
 # our auth token
 APPSCAN_TOKEN = None
 
@@ -60,7 +64,7 @@ APPSCAN_SCAN_TYPE_STAGING    = 1
 
 # check cli args, set globals appropriately
 def parse_args ():
-    global APPSCAN_SERVER
+    global APPSCAN_SERVER, AD_BASE_URL, AD_USER, AD_PWD
     parsed_args = {}
     parsed_args['loginonly'] = False
     parsed_args['checkstate'] = False
@@ -78,12 +82,15 @@ def parse_args ():
             # enable debug mode, can also be done with DEBUG env var
             parsed_args['debug'] = True
             DEBUG = "1"
-        if arg == "--help":
+        if (arg == "--help") or (arg == "-h"):
             # just print help and return
             parsed_args['help'] = True
 
     # load env vars
     APPSCAN_SERVER = os.getenv('APPSCAN_ENV', DEFAULT_APPSCAN_SERVER)
+    AD_BASE_URL = os.environ.get('AD_BASE_URL')
+    AD_USER = os.environ.get('AD_USER')
+    AD_PWD = os.environ.get('AD_PWD')
 
     return parsed_args
 
@@ -492,7 +499,7 @@ def appscan_login (userid, password):
         LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if res.status_code != 200:
-        raise Exception("Unable to login to Dynamic Analysis service")
+        raise Exception("Unable to login to Dynamic Analysis service, status code " + str(res.status_code))
 
     rj = res.json()
     APPSCAN_TOKEN = rj["Token"]
@@ -503,7 +510,7 @@ def appscan_login (userid, password):
 
 # submit a base url to appscan for analysis
 def appscan_submit (baseurl, baseuser=None, basepwd=None):
-    if baseurl==None:
+    if not baseurl:
         raise Exception("No Base URL to scan")
 
     if not APPSCAN_TOKEN:
@@ -535,7 +542,7 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None):
         LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if res.status_code != 200:
-        raise Exception("Unable to communicate with Dynamic Analysis service (list)")
+        raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
 
     rj = res.json()
     scanlist = []
@@ -564,7 +571,7 @@ def appscan_list ():
         LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if res.status_code != 200:
-        raise Exception("Unable to communicate with Dynamic Analysis service (list)")
+        raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
 
     rj = res.json()
     scanlist = []
@@ -692,7 +699,7 @@ def appscan_info (jobid):
         LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if res.status_code != 200:
-        raise Exception("Unable to communicate with Dynamic Analysis service (list)")
+        raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
 
     for job in res.json():
         if job["JobId"] == jobid:
@@ -782,7 +789,7 @@ def wait_for_scans (joblist):
                         # notify the user
                         print LABEL_RED + STARS
                         print "Analysis incomplete for job \"" + results["Name"] + "\""
-                        print "\t" + str(prog) + "% complete"
+                        print "\t" + str(results["Progress"]) + "% complete"
                         if dash != None:
                             print "Track current state and results at: " + LABEL_COLOR + " " + dash
                         print LABEL_RED + "Increase the time to wait and rerun this job. The existing analysis will continue and be found and tracked."
@@ -836,7 +843,7 @@ try:
         joblist = check_for_existing_job()
         if joblist == None:
             LOGGER.info("Submitting URL for analysis")
-            joblist = appscan_submit(files_to_submit)
+            joblist = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD)
             LOGGER.info("Waiting for analysis to complete")
         else:
             LOGGER.info("Existing job found, connecting")
