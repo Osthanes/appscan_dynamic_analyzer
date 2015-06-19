@@ -472,12 +472,16 @@ def get_scanname_template (include_version=True):
     else:
         scanname=DEFAULT_SCANNAME
 
+    # if no version, will end with a dash - this is expected (and used)
+    # for matching old versions
+    scanname = scanname + "-"
     if include_version:
         # if we have an application version, append it to the scanname
         if os.environ.get('APPLICATION_VERSION'):
-            scanname = scanname + "-" + os.environ.get('APPLICATION_VERSION')
-
-    scanname = scanname + "-"
+            scanname = scanname + os.environ.get('APPLICATION_VERSION')
+        else:
+            # need a version, don't have one, set to 0
+            scanname = scanname + "0"
 
     return scanname
 
@@ -541,13 +545,12 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None):
     if DEBUG:
         LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
-    if res.status_code != 200:
+    if (res.status_code < 200) or (res.status_code > 204):
         raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
 
     rj = res.json()
     scanlist = []
-    for scan in rj:
-        scanlist.append(scan["JobId"])
+    scanlist.append(rj["JobId"])
 
     return scanlist
 
@@ -839,8 +842,8 @@ try:
     else:
         # if the job we would run is already up (and either pending or complete),
         # we just want to get state (and wait for it if needed), not create a whole
-        # new submission
-        joblist = check_for_existing_job()
+        # new submission (check current version only at this point)
+        joblist = check_for_existing_job(False)
         if joblist == None:
             LOGGER.info("Submitting URL for analysis")
             joblist = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD)
