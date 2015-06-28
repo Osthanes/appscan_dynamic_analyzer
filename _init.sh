@@ -136,9 +136,9 @@ else
 
 fi  
 
-################################
-# Login to Container Service   #
-################################
+############################
+# Check login to Bluemix   #
+############################
 if [ -n "$BLUEMIX_USER" ] || [ ! -f ~/.cf/config.json ]; then
     # need to gather information from the environment 
     # Get the Bluemix user and password information 
