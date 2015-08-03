@@ -26,31 +26,18 @@ import time
 import timeit
 from datetime import datetime
 from subprocess import call, Popen, PIPE
-
-# ascii color codes for output
-LABEL_GREEN='\033[0;32m'
-LABEL_RED='\033[0;31m'
-LABEL_COLOR='\033[0;33m'
-LABEL_NO_COLOR='\033[0m'
-STARS="**********************************************************************"
+import python_utils
 
 DYNAMIC_ANALYSIS_SERVICE='AppScan Dynamic Analyzer'
 DEFAULT_SERVICE=DYNAMIC_ANALYSIS_SERVICE
 DEFAULT_SERVICE_PLAN="standard"
 DEFAULT_SERVICE_NAME=DEFAULT_SERVICE
 DEFAULT_SCANNAME="webscan"
-DEFAULT_BRIDGEAPP_NAME="pipeline_bridge_app"
 DEFAULT_APPSCAN_SERVER="https://appscan.ibmcloud.com"
 
-EXT_DIR=os.getenv('EXT_DIR', ".")
-DEBUG=os.environ.get('DEBUG')
 # time to sleep between checks when waiting on pending jobs, in seconds
 SLEEP_TIME=15
 
-SCRIPT_START_TIME = timeit.default_timer()
-LOGGER = None
-FULL_WAIT_TIME = 5
-WAIT_TIME = 0
 # scan info, loaded from ENV
 APPSCAN_SERVER = ""
 AD_BASE_URL = None
@@ -82,9 +69,9 @@ def parse_args ():
             # any new ones
             parsed_args['checkstate'] = True
         if arg == "--debug":
-            # enable debug mode, can also be done with DEBUG env var
+            # enable debug mode, can also be done with python_utils.DEBUG env var
             parsed_args['debug'] = True
-            DEBUG = "1"
+            python_utils.DEBUG = "1"
         if (arg == "--help") or (arg == "-h"):
             # just print help and return
             parsed_args['help'] = True
@@ -120,355 +107,6 @@ def print_help ():
     print
 
 
-# setup logmet logging connection if it's available
-def setup_logging ():
-    logger = logging.getLogger('pipeline')
-    if DEBUG:
-        logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(logging.INFO)
-
-    # if logmet is enabled, send the log through syslog as well
-    if os.environ.get('LOGMET_LOGGING_ENABLED'):
-        handler = logging.handlers.SysLogHandler(address='/dev/log')
-        logger.addHandler(handler)
-        # don't send debug info through syslog
-        handler.setLevel(logging.INFO)
-
-    # in any case, dump logging to the screen
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    if DEBUG:
-        handler.setLevel(logging.DEBUG)
-    else:
-        handler.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    
-    return logger
-
-# return the remaining time to wait
-# first time, will prime from env var and subtract init script time 
-#
-# return is the expected max time left in seconds we're allowed to wait
-# for pending jobs to complete
-def get_remaining_wait_time (first = False):
-    global FULL_WAIT_TIME
-    if first:
-        # first time through, set up the var from env
-        try:
-            FULL_WAIT_TIME = int(os.getenv('WAIT_TIME', "5"))
-        except ValueError:
-            FULL_WAIT_TIME = 5
-
-        # convert to seconds
-        time_to_wait = FULL_WAIT_TIME * 60
-
-        # and (if not 0) subtract out init time
-        if time_to_wait != 0:
-            try:
-                initTime = int(os.getenv("INT_EST_TIME", "0"))
-            except ValueError:
-                initTime = 0
-
-            time_to_wait -= initTime
-    else:
-        # just get the initial start time
-        time_to_wait = WAIT_TIME
-
-    # if no time to wait, no point subtracting anything
-    if time_to_wait != 0:
-        time_so_far = int(timeit.default_timer() - SCRIPT_START_TIME)
-        time_to_wait -= time_so_far
-
-    # can't wait negative time, fix it
-    if time_to_wait < 0:
-        time_to_wait = 0
-
-    return time_to_wait
-
-# find the given service in our space, get its service name, or None
-# if it's not there yet
-def find_service_name_in_space (service):
-    command = "cf services"
-    proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate();
-
-    if proc.returncode != 0:
-        LOGGER.info("Unable to lookup services, error was: " + out)
-        return None
-
-    foundHeader = False
-    serviceStart = -1
-    serviceEnd = -1
-    serviceName = None
-    for line in out.splitlines():
-        if (foundHeader == False) and (line.startswith("name")):
-            # this is the header bar, find out the spacing to parse later
-            # header is of the format:
-            #name          service      plan   bound apps    last operation
-            # and the spacing is maintained for following lines
-            serviceStart = line.find("service")
-            serviceEnd = line.find("plan")-1
-            foundHeader = True
-        elif foundHeader:
-            # have found the headers, looking for our service
-            if service in line:
-                # maybe found it, double check by making
-                # sure the service is in the right place,
-                # assuming we can check it
-                if (serviceStart > 0) and (serviceEnd > 0):
-                    if service in line[serviceStart:serviceEnd]:
-                        # this is the correct line - find the bound app(s)
-                        # if there are any
-                        serviceName = line[:serviceStart]
-                        serviceName = serviceName.strip()
-        else:
-            continue
-
-    return serviceName
-
-# find a service in our space, and if it's there, get the dashboard
-# url for user info on it
-def find_service_dashboard (service=DEFAULT_SERVICE):
-
-    serviceName = find_service_name_in_space(service)
-    if serviceName == None:
-        return None
-
-    command = "cf service \"" + serviceName + "\""
-    proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate();
-
-    if proc.returncode != 0:
-        return None
-
-    serviceURL = None
-    for line in out.splitlines():
-        if line.startswith("Dashboard: "):
-            serviceURL = line[11:]
-        else:
-            continue
-
-    return serviceURL
-
-# search cf, find an app in our space bound to the given service, and return
-# the app name if found, or None if not
-def find_bound_app_for_service (service=DEFAULT_SERVICE):
-
-    proc = Popen(["cf services"], shell=True, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate();
-
-    if proc.returncode != 0:
-        return None
-
-    foundHeader = False
-    serviceStart = -1
-    serviceEnd = -1
-    boundStart = -1
-    boundEnd = -1
-    boundApp = None
-    for line in out.splitlines():
-        if (foundHeader == False) and (line.startswith("name")):
-            # this is the header bar, find out the spacing to parse later
-            # header is of the format:
-            #name          service      plan   bound apps    last operation
-            # and the spacing is maintained for following lines
-            serviceStart = line.find("service")
-            serviceEnd = line.find("plan")-1
-            boundStart = line.find("bound apps")
-            boundEnd = line.find("last operation")
-            foundHeader = True
-        elif foundHeader:
-            # have found the headers, looking for our service
-            if service in line:
-                # maybe found it, double check by making
-                # sure the service is in the right place,
-                # assuming we can check it
-                if (serviceStart > 0) and (serviceEnd > 0) and (boundStart > 0) and (boundEnd > 0):
-                    if service in line[serviceStart:serviceEnd]:
-                        # this is the correct line - find the bound app(s)
-                        # if there are any
-                        boundApp = line[boundStart:boundEnd]
-        else:
-            continue
-
-    # if we found a binding, make sure we only care about the first one
-    if boundApp != None:
-        if boundApp.find(",") >=0 :
-            boundApp = boundApp[:boundApp.find(",")]
-        boundApp = boundApp.strip()
-        if boundApp=="":
-            boundApp = None
-
-    if DEBUG:
-        if boundApp == None:
-            LOGGER.debug("No existing apps found bound to service \"" + service + "\"")
-        else:
-            LOGGER.debug("Found existing service \"" + boundApp + "\" bound to service \"" + service + "\"")
-
-    return boundApp
-
-# look for our default bridge app.  if it's not there, create it
-def check_and_create_bridge_app ():
-    # first look to see if the bridge app already exists
-    command = "cf apps"
-    LOGGER.debug("Executing command \"" + command + "\"")
-    proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate();
-
-    if DEBUG:
-        LOGGER.debug("command \"" + command + "\" returned with rc=" + str(proc.returncode))
-        LOGGER.debug("\tstdout was " + out)
-        LOGGER.debug("\tstderr was " + err)
-
-    if proc.returncode != 0:
-        return None
-
-    for line in out.splitlines():
-        if line.startswith(DEFAULT_BRIDGEAPP_NAME + " "):
-            # found it!
-            return True
-
-    # our bridge app isn't around, create it
-    LOGGER.info("Bridge app does not exist, attempting to create it")
-    if os.environ.get('OLDCF_LOCATION'):
-        command = os.environ.get('OLDCF_LOCATION')
-        if not os.path.isfile(command):
-            command = 'cf'
-    else:
-        command = 'cf'
-    command = command +" push " + DEFAULT_BRIDGEAPP_NAME + " -i 1 -d mybluemix.net -k 1M -m 64M --no-hostname --no-manifest --no-route --no-start"
-    LOGGER.debug("Executing command \"" + command + "\"")
-    proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate();
-
-    if DEBUG:
-        LOGGER.debug("command \"" + command + "\" returned with rc=" + str(proc.returncode))
-        LOGGER.debug("\tstdout was " + out)
-        LOGGER.debug("\tstderr was " + err)
-
-    if proc.returncode != 0:
-        LOGGER.info("Unable to create bridge app, error was: " + out)
-        return False
-
-    return True
-
-# look for our bridge app to bind this service to.  If it's not there,
-# attempt to create it.  Then bind the service to that app under the 
-# given plan.  If it all works, return that app name as the bound app
-def create_bound_app_for_service (service=DEFAULT_SERVICE, plan=DEFAULT_SERVICE_PLAN):
-
-    if not check_and_create_bridge_app():
-        return None
-
-    # look to see if we have the service in our space
-    serviceName = find_service_name_in_space(service)
-
-    # if we don't have the service name, means the tile isn't created in our space, so go
-    # load it into our space if possible
-    if serviceName == None:
-        LOGGER.info("Service \"" + service + "\" is not loaded in this space, attempting to load it")
-        serviceName = service
-        command = "cf create-service \"" + service + "\" \"" + plan + "\" \"" + serviceName + "\""
-        LOGGER.debug("Executing command \"" + command + "\"")
-        proc = Popen([command], 
-                     shell=True, stdout=PIPE, stderr=PIPE)
-        out, err = proc.communicate();
-
-        if proc.returncode != 0:
-            LOGGER.info("Unable to create service in this space, error was: " + out)
-            return None
-
-    # now try to bind the service to our bridge app
-    LOGGER.info("Binding service \"" + serviceName + "\" to app \"" + DEFAULT_BRIDGEAPP_NAME + "\"")
-    proc = Popen(["cf bind-service " + DEFAULT_BRIDGEAPP_NAME + " \"" + serviceName + "\""], 
-                 shell=True, stdout=PIPE, stderr=PIPE)
-    out, err = proc.communicate();
-
-    if proc.returncode != 0:
-        LOGGER.info("Unable to bind service to the bridge app, error was: " + out)
-        return None
-
-    return DEFAULT_BRIDGEAPP_NAME
-
-# find given bound app, and look for the passed bound service in cf.  once
-# found in VCAP_SERVICES, look for the credentials setting, and return the
-# dict.  Raises Exception on errors
-def get_credentials_from_bound_app (service=DEFAULT_SERVICE, binding_app=None):
-    # if no binding app parm passed, go looking to find a bound app for this one
-    if binding_app == None:
-        binding_app = find_bound_app_for_service(service)
-    # if still no binding app, and the user agreed, CREATE IT!
-    if binding_app == None:
-        setupSpace = os.environ.get('SETUP_SERVICE_SPACE')
-        if (setupSpace != None) and (setupSpace.lower() == "true"):
-            binding_app = create_bound_app_for_service(service=service, plan=DEFAULT_SERVICE_PLAN)
-        else:
-            raise Exception("Service \"" + service + "\" is not loaded and bound in this space.  " + LABEL_COLOR + "Please add the service to the space and bind it to an app, or set the parameter to allow the space to be setup automatically" + LABEL_NO_COLOR)
-
-    # if STILL no binding app, we're out of options, just fail out
-    if binding_app == None:
-        raise Exception("Unable to access an app bound to the " + service + " service - this must be set to get the proper credentials.")
-
-    # try to read the env vars off the bound app in cloud foundry, the one we
-    # care about is "VCAP_SERVICES"
-    verProc = Popen(["cf env \"" + binding_app + "\""], shell=True, 
-                    stdout=PIPE, stderr=PIPE)
-    verOut, verErr = verProc.communicate();
-
-    if verProc.returncode != 0:
-        raise Exception("Unable to read credential information off the app bound to the " + service + " service - please check that it is set correctly.")
-
-    envList = []
-    envIndex = 0
-    inSection = False
-    # the cf env var data comes back in the form
-    # blah blah blah
-    # {
-    #    <some json data for a var>
-    # }
-    # ... repeat, possibly including blah blah blah
-    #
-    # parse through it, and extract out just the json blocks
-    for line in verOut.splitlines():
-        if inSection:
-            envList[envIndex] += line
-            if line.startswith("}"):
-                # block end
-                inSection = False
-                envIndex = envIndex+1
-        elif line.startswith("{"): 
-            # starting a block
-            envList.append(line)
-            inSection = True
-        else:
-            # just ignore this line
-            pass
-
-    # now parse that collected json data to get the actual vars
-    jsonEnvList = {}
-    for x in envList:
-        jsonEnvList.update(json.loads(x))
-
-    return_cred_list = []
-    found = False
-
-    # find the credentials for the service in question
-    if jsonEnvList != None:
-        serviceList = jsonEnvList['VCAP_SERVICES']
-        if serviceList != None:
-            analyzerService = serviceList[service]
-            if analyzerService != None:
-                credentials = analyzerService[0]['credentials']
-                if credentials != None:
-                    found = True
-                    return credentials
-
-    if not found:
-        raise Exception("Unable to get bound credentials for access to the " + service + " service.")
-
-    return None
 
 # create a template for a current scan.  this will be in the format
 # "<scanname>-<version>-" where scanname comes from env var 
@@ -506,11 +144,11 @@ def appscan_login (userid, password):
         'content-type': 'application/json',
     }
 
-    if DEBUG:
-        LOGGER.debug("Sending request \"" + str(url) + "\" with body \"" + str(body) + "\" and headers \"" + str(xheaders) + "\"")
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("Sending request \"" + str(url) + "\" with body \"" + str(body) + "\" and headers \"" + str(xheaders) + "\"")
     res = requests.post(url, data=body, headers=xheaders)
-    if DEBUG:
-        LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if res.status_code != 200:
         raise Exception("Unable to login to Dynamic Analysis service, status code " + str(res.status_code))
@@ -530,6 +168,11 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None, oldjobs=None):
     if not APPSCAN_TOKEN:
         raise Exception("Attempted submit with no valid login token")
 
+#TODO: To rescan, see about using /Rescan instead of /Scan
+#TODO: To rescan you have to provide the jobID of what you are rescanning
+#TODO: Recan is free for a month... you can get data on job about time remaining on free rescans
+
+#TODO: Follow-up on UserAgreeToPay
     url = "%s/api/BlueMix/DynamicAnalyzer/Scan" % APPSCAN_SERVER
     body_struct = {}
     body_struct["ScanName"] = get_scanname_template()
@@ -549,11 +192,11 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None, oldjobs=None):
 
     }
 
-    if DEBUG:
-        LOGGER.debug("Sending request \"" + str(url) + "\" with body \"" + str(body) + "\" and headers \"" + str(xheaders) + "\"")
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("Sending request \"" + str(url) + "\" with body \"" + str(body) + "\" and headers \"" + str(xheaders) + "\"")
     res = requests.post(url, data=body, headers=xheaders)
-    if DEBUG:
-        LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if (res.status_code < 200) or (res.status_code > 204):
         msg = "Error submitting scan to Dynamic Analysis service (list), status code " + str(res.status_code)
@@ -563,8 +206,8 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None, oldjobs=None):
                 if res_err and res_err["Message"]:
                     msg = msg + " with message \"" + str(res_err["Message"]) + "\""
             except Exception:
-                if DEBUG:
-                    LOGGER.debug("unable to parse returned error data")
+                if python_utils.DEBUG:
+                    python_utils.LOGGER.debug("unable to parse returned error data")
         raise Exception(msg)
 
     rj = res.json()
@@ -586,11 +229,11 @@ def appscan_list ():
 
     }
 
-    if DEBUG:
-        LOGGER.debug("Sending request \"" + str(url) + "\" with headers \"" + str(xheaders) + "\"")
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("Sending request \"" + str(url) + "\" with headers \"" + str(xheaders) + "\"")
     res = requests.get(url, headers=xheaders)
-    if DEBUG:
-        LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if res.status_code != 200:
         raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
@@ -714,11 +357,11 @@ def appscan_info (jobid):
 
     }
 
-    if DEBUG:
-        LOGGER.debug("Sending request \"" + str(url) + "\" with headers \"" + str(xheaders) + "\"")
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("Sending request \"" + str(url) + "\" with headers \"" + str(xheaders) + "\"")
     res = requests.get(url, headers=xheaders)
-    if DEBUG:
-        LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
     if res.status_code != 200:
         raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
@@ -774,31 +417,31 @@ def wait_for_scans (joblist):
     # number of high sev issues in completed jobs
     high_issue_count = 0
     med_issue_count = 0
-    dash = find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
+    dash = python_utils.find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
     for jobid in joblist:
         try:
             while True:
                 state = appscan_status(jobid)
-                LOGGER.info("Job " + str(jobid) + " in state " + get_state_name(state))
+                python_utils.LOGGER.info("Job " + str(jobid) + " in state " + get_state_name(state))
                 if get_state_completed(state):
                     results = appscan_info(jobid)
                     if get_state_successful(state):
                         high_issue_count += results["NHighIssues"]
                         med_issue_count += results["NMediumIssues"]
-                        LOGGER.info("Analysis successful (" + results["Name"] + ")")
+                        python_utils.LOGGER.info("Analysis successful (" + results["Name"] + ")")
                         #print "\tOther Message : " + msg
                         #appscan_get_result(jobid)
-                        print LABEL_GREEN + STARS
+                        print python_utils.LABEL_GREEN + python_utils.STARS
                         print "Analysis successful for job \"" + results["Name"] + "\""
                         print "\tHigh Severity Issues   : " + str(results["NHighIssues"])
                         print "\tMedium Severity Issues : " + str(results["NMediumIssues"])
                         print "\tLow Severity Issues    : " + str(results["NLowIssues"])
                         print "\tInfo Severity Issues   : " + str(results["NInfoIssues"])
                         if dash != None:
-                            print "See detailed results at: " + LABEL_COLOR + " " + dash
-                        print LABEL_GREEN + STARS + LABEL_NO_COLOR
+                            print "See detailed results at: " + python_utils.LABEL_COLOR + " " + dash
+                        print python_utils.LABEL_GREEN + python_utils.STARS + python_utils.LABEL_NO_COLOR
                     else: 
-                        LOGGER.info("Analysis unsuccessful (" + results["Name"] + ") with message \"" + results["UserMessage"] + "\"")
+                        python_utils.LOGGER.info("Analysis unsuccessful (" + results["Name"] + ") with message \"" + results["UserMessage"] + "\"")
 
                     break
                 else:
@@ -811,20 +454,20 @@ def wait_for_scans (joblist):
                         # get what info we can on this job
                         results = appscan_info(jobid)
                         # notify the user
-                        print LABEL_RED + STARS
+                        print python_utils.LABEL_RED + python_utils.STARS
                         print "Analysis incomplete for job \"" + results["Name"] + "\""
                         print "\t" + str(results["Progress"]) + "% complete"
                         if dash != None:
-                            print "Track current state and results at: " + LABEL_COLOR + " " + dash
-                        print LABEL_RED + "Increase the time to wait and rerun this job. The existing analysis will continue and be found and tracked."
-                        print STARS + LABEL_NO_COLOR
+                            print "Track current state and results at: " + python_utils.LABEL_COLOR + " " + dash
+                        print python_utils.LABEL_RED + "Increase the time to wait and rerun this job. The existing analysis will continue and be found and tracked."
+                        print python_utils.STARS + python_utils.LABEL_NO_COLOR
 
                         # and continue to get state for other jobs
                         break
         except Exception, e:
             # bad id, skip it
-            if DEBUG:
-                LOGGER.debug("exception in wait_for_scans: " + str(e))
+            if python_utils.DEBUG:
+                python_utils.LOGGER.debug("exception in wait_for_scans: " + str(e))
 
     return all_jobs_complete, high_issue_count, med_issue_count
 
@@ -837,30 +480,30 @@ try:
         print_help()
         sys.exit(0)
 
-    LOGGER = setup_logging()
-    WAIT_TIME = get_remaining_wait_time(first = True)
+    python_utils.LOGGER = python_utils.setup_logging()
+    python_utils.WAIT_TIME = python_utils.get_remaining_wait_time(first = True)
     # send slack notification 
-    if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
-        command='{path}/utilities/sendMessage.sh -l info -m \"Starting dynamic security scan\"'.format(path=EXT_DIR)
-        if DEBUG:
+    if os.path.isfile("%s/utilities/sendMessage.sh" % python_utils.EXT_DIR):
+        command='{path}/utilities/sendMessage.sh -l info -m \"Starting dynamic security scan\"'.format(path=python_utils.EXT_DIR)
+        if python_utils.DEBUG:
             print "running command " + command 
         proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
         out, err = proc.communicate();
-        LOGGER.debug(out)
+        python_utils.LOGGER.debug(out)
     else:
-        if DEBUG:
+        if python_utils.DEBUG:
             print "sendMessage.sh not found, notifications not attempted"
 
-    LOGGER.info("Getting credentials for Dynamic Analysis service")
-    creds = get_credentials_from_bound_app(service=DYNAMIC_ANALYSIS_SERVICE)
-    LOGGER.info("Connecting to Dynamic Analysis service")
+    python_utils.LOGGER.info("Getting credentials for Dynamic Analysis service")
+    creds = python_utils.get_credentials_from_bound_app(service=DYNAMIC_ANALYSIS_SERVICE, plan=DEFAULT_SERVICE_PLAN)
+    python_utils.LOGGER.info("Connecting to Dynamic Analysis service")
     appscan_login(creds['bindingid'],creds['password'])
 
     # allow testing connection without full job scan and submission
     if parsed_args['loginonly']:
-        LOGGER.info("LoginOnly set, login complete, exiting")
+        python_utils.LOGGER.info("LoginOnly set, login complete, exiting")
         endtime = timeit.default_timer()
-        print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
+        print "Script completed in " + str(endtime - python_utils.SCRIPT_START_TIME) + " seconds"
         sys.exit(0)
 
     # see if we have related jobs (need this for both paths)
@@ -868,7 +511,7 @@ try:
     # if checkstate, don't really do a scan, just check state of current outstanding ones
     if parsed_args['checkstate']:
         # for checkstate, don't wait, just check current
-        WAIT_TIME = 0
+        python_utils.WAIT_TIME = 0
         if joblist == None:
             # no related jobs, get whole list
             joblist = appscan_list()
@@ -880,56 +523,56 @@ try:
         # new submission (check current version only at this point)
         joblist = check_for_existing_job(ignore_older_jobs=True)
         if joblist == None:
-            LOGGER.info("Submitting URL for analysis")
+            python_utils.LOGGER.info("Submitting URL for analysis")
             joblist = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD, oldjobs=old_joblist)
-            LOGGER.info("Waiting for analysis to complete")
+            python_utils.LOGGER.info("Waiting for analysis to complete")
         else:
-            LOGGER.info("Existing job found, connecting")
+            python_utils.LOGGER.info("Existing job found, connecting")
 
     # check on pending jobs, waiting if appropriate
     all_jobs_complete, high_issue_count, med_issue_count = wait_for_scans(joblist)
 
     # prebuild common substrings
-    dash = find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
+    dash = python_utils.find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
     # if we didn't successfully complete jobs, return that we timed out
     if not all_jobs_complete:
         # send slack notification 
-        if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
-            command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> did not complete within {wait} minutes.  Stage will need to be re-run after the scan completes.\"'.format(path=EXT_DIR,url=dash,wait=FULL_WAIT_TIME)
+        if os.path.isfile("%s/utilities/sendMessage.sh" % python_utils.EXT_DIR):
+            command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> did not complete within {wait} minutes.  Stage will need to be re-run after the scan completes.\"'.format(path=python_utils.EXT_DIR,url=dash,wait=FULL_WAIT_TIME)
             proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
             out, err = proc.communicate();
-            LOGGER.debug(out)
+            python_utils.LOGGER.debug(out)
 
         endtime = timeit.default_timer()
-        print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
+        print "Script completed in " + str(endtime - python_utils.SCRIPT_START_TIME) + " seconds"
         sys.exit(2)
     else:
         if high_issue_count > 0:
             # send slack notification 
-            if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
-                command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> completed with {issues} high issues detected in the application.\"'.format(path=EXT_DIR,url=dash, issues=high_issue_count)
+            if os.path.isfile("%s/utilities/sendMessage.sh" % python_utils.EXT_DIR):
+                command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> completed with {issues} high issues detected in the application.\"'.format(path=python_utils.EXT_DIR,url=dash, issues=high_issue_count)
                 proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
                 out, err = proc.communicate();
-                LOGGER.debug(out)
+                python_utils.LOGGER.debug(out)
 
             endtime = timeit.default_timer()
-            print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
+            print "Script completed in " + str(endtime - python_utils.SCRIPT_START_TIME) + " seconds"
             sys.exit(1)
 
-        if os.path.isfile("%s/utilities/sendMessage.sh" % EXT_DIR):
+        if os.path.isfile("%s/utilities/sendMessage.sh" % python_utils.EXT_DIR):
             if med_issue_count > 0: 
-                command='SLACK_COLOR=\"warning\" {path}/utilities/sendMessage.sh -l good -m \"<{url}|Dynamic security scan> completed with no major issues.\"'.format(path=EXT_DIR,url=dash)
+                command='SLACK_COLOR=\"warning\" {path}/utilities/sendMessage.sh -l good -m \"<{url}|Dynamic security scan> completed with no major issues.\"'.format(path=python_utils.EXT_DIR,url=dash)
             else:            
-                command='{path}/utilities/sendMessage.sh -l good -m \"<{url}|Dynamic security scan> completed with no major issues.\"'.format(path=EXT_DIR,url=dash)
+                command='{path}/utilities/sendMessage.sh -l good -m \"<{url}|Dynamic security scan> completed with no major issues.\"'.format(path=python_utils.EXT_DIR,url=dash)
             proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
             out, err = proc.communicate();
-            LOGGER.debug(out)
+            python_utils.LOGGER.debug(out)
         endtime = timeit.default_timer()
-        print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
+        print "Script completed in " + str(endtime - python_utils.SCRIPT_START_TIME) + " seconds"
         sys.exit(0)
 
 except Exception, e:
-    LOGGER.warning("Exception received", exc_info=e)
+    python_utils.LOGGER.warning("Exception received", exc_info=e)
     endtime = timeit.default_timer()
-    print "Script completed in " + str(endtime - SCRIPT_START_TIME) + " seconds"
+    print "Script completed in " + str(endtime - python_utils.SCRIPT_START_TIME) + " seconds"
     sys.exit(1)
