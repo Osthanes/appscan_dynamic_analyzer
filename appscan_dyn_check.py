@@ -28,12 +28,12 @@ from datetime import datetime
 from subprocess import call, Popen, PIPE
 import python_utils
 
-DYNAMIC_ANALYSIS_SERVICE='AppScan Dynamic Analyzer'
-DEFAULT_SERVICE=DYNAMIC_ANALYSIS_SERVICE
-DEFAULT_SERVICE_PLAN="standard"
+APP_SECURITY_SERVICE='Application Security on Cloud'
+DEFAULT_SERVICE=APP_SECURITY_SERVICE
+DEFAULT_SERVICE_PLAN="free"
 DEFAULT_SERVICE_NAME=DEFAULT_SERVICE
 DEFAULT_SCANNAME="webscan"
-DEFAULT_APPSCAN_SERVER="https://appscan.ibmcloud.com"
+DEFAULT_APPSCAN_SERVER="https://appscan.bluemix.net"
 
 # time to sleep between checks when waiting on pending jobs, in seconds
 SLEEP_TIME=15
@@ -44,17 +44,21 @@ AD_BASE_URL = None
 AD_USER = None
 AD_PWD = None
 IDS_PROJECT_NAME = None
+AD_BOUND_APP = None
 # our auth token
 APPSCAN_TOKEN = None
+# default to not approved to spend money
+COST_APPROVED = False
+SCAN_TYPE = None
 
 # some appscan defines - production scan tries harder to be
 # nondestructive.  staging is more willing to submit posts, deletes, etc
-APPSCAN_SCAN_TYPE_PRODUCTION = 0
-APPSCAN_SCAN_TYPE_STAGING    = 1
+APPSCAN_SCAN_TYPE_PRODUCTION = "Production"
+APPSCAN_SCAN_TYPE_STAGING    = "Staging"
 
 # check cli args, set globals appropriately
 def parse_args ():
-    global APPSCAN_SERVER, AD_BASE_URL, AD_USER, AD_PWD, IDS_PROJECT_NAME
+    global APPSCAN_SERVER, AD_BASE_URL, AD_USER, AD_PWD, IDS_PROJECT_NAME, SCAN_TYPE, COST_APPROVED, AD_BOUND_APP
     parsed_args = {}
     parsed_args['loginonly'] = False
     parsed_args['checkstate'] = False
@@ -81,10 +85,19 @@ def parse_args ():
     AD_BASE_URL = os.environ.get('AD_BASE_URL')
     AD_USER = os.environ.get('AD_USER')
     AD_PWD = os.environ.get('AD_PWD')
+    AD_BOUND_APP = os.environ.get('AD_BOUND_APP')
+    SCAN_TYPE = os.getenv('AD_SCAN_TYPE', APPSCAN_SCAN_TYPE_PRODUCTION)
+    if SCAN_TYPE.lower() == APPSCAN_SCAN_TYPE_STAGING.lower():
+        SCAN_TYPE = APPSCAN_SCAN_TYPE_STAGING
+    else:
+        SCAN_TYPE = APPSCAN_SCAN_TYPE_PRODUCTION
     IDS_PROJECT_NAME = os.environ.get('IDS_PROJECT_NAME')
     if IDS_PROJECT_NAME:
         IDS_PROJECT_NAME = IDS_PROJECT_NAME.replace(" | ", "-")
-
+    AD_APPROVED = os.environ.get('AD_APPROVED')
+    if AD_APPROVED:
+        if AD_APPROVED == "1" or AD_APPROVED == "true" or AD_APPROVED == "True":
+            COST_APPROVED = True
     return parsed_args
 
 # print a quick usage/help statement
@@ -104,25 +117,32 @@ def print_help ():
     print "\t   AD_USER        : userid to login to the scanned pages, if necessary (optional)"
     print "\t   AD_PWD         : password to login to the scanned pages, if necessary (optional)"
     print "\t   WAIT_TIME      : time in minutes to wait for the scan to complete (optional, default 5)"
-    print
+    print "\t   AD_APPROVED    : flag indicating approval to spend money on a new scan."
+    print "\t                  : If not set, only free rescanning will be performed"
+    print "\t   AD_SCAN_TYPE   : \"Production\" or \"Staging\".  \"Staging\" can be a destructive scan"
+    print ""
 
 
 
 # create a template for a current scan.  this will be in the format
-# "<scanname>-<version>-" where scanname comes from env var 
-# 'SUBMISSION_NAME', and version comes from env var 'APPLICATION_VERSION'
+# "<scanname>-<type>-<version>" where scanname comes from env var 
+# 'SUBMISSION_NAME', type comes from env var AD_SCAN_TYPE, and 
+# version comes from env var 'APPLICATION_VERSION'
 def get_scanname_template (include_version=True):
     # check the env for name of the scan, else use default
     if os.environ.get('SUBMISSION_NAME'):
-        scanname=os.environ.get('SUBMISSION_NAME')
+        scanname = os.environ.get('SUBMISSION_NAME')
     elif IDS_PROJECT_NAME:
         scanname = IDS_PROJECT_NAME
     else:
-        scanname=DEFAULT_SCANNAME
+        scanname = DEFAULT_SCANNAME
 
+    print scanname
+    print SCAN_TYPE
     # if no version, will end with a dash - this is expected (and used)
     # for matching old versions
-    scanname = scanname + "-"
+    scanname = scanname + "-" + SCAN_TYPE + "-"
+    
     if include_version:
         # if we have an application version, append it to the scanname
         if os.environ.get('APPLICATION_VERSION'):
@@ -138,7 +158,7 @@ def get_scanname_template (include_version=True):
 def appscan_login (userid, password):
     global APPSCAN_TOKEN
 
-    url = "%s/api/BlueMix/Account/BMAPILogin" % APPSCAN_SERVER
+    url = "%s/api/V2/Account/BluemixLogin" % APPSCAN_SERVER
     body = "{\"Bindingid\": \"%s\", \"Password\": \"%s\"}" % (userid, password)
     xheaders = {
         'content-type': 'application/json',
@@ -168,21 +188,15 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None, oldjobs=None):
     if not APPSCAN_TOKEN:
         raise Exception("Attempted submit with no valid login token")
 
-#TODO: To rescan, see about using /Rescan instead of /Scan
-#TODO: To rescan you have to provide the jobID of what you are rescanning
-#TODO: Recan is free for a month... you can get data on job about time remaining on free rescans
-
-#TODO: Follow-up on UserAgreeToPay
-    url = "%s/api/BlueMix/DynamicAnalyzer/Scan" % APPSCAN_SERVER
+    url = "%s/api/v2/Scans/DynamicAnalyzer" % APPSCAN_SERVER
     body_struct = {}
     body_struct["ScanName"] = get_scanname_template()
     body_struct["StartingUrl"] = baseurl
-    body_struct["ScanType"] = APPSCAN_SCAN_TYPE_PRODUCTION
+    body_struct["ScanType"] = APPSCAN_SCAN_TYPE_STAGING
     if baseuser:
         body_struct["LoginUser"] = baseuser
     if basepwd:
         body_struct["LoginPassword"] = basepwd
-    body_struct["UserAgreeToPay"] = True
     body_struct["Locale"] = "en-us"
 
     body = json.dumps(body_struct)
@@ -209,24 +223,44 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None, oldjobs=None):
                 if python_utils.DEBUG:
                     python_utils.LOGGER.debug("unable to parse returned error data")
         raise Exception(msg)
+    return res.json()
 
-    rj = res.json()
-    scanlist = []
-    scanlist.append(rj["JobId"])
+def rescan_submit (scan):
+    #/api/v2/Scans/{scanId}/Executions    
+    if not APPSCAN_TOKEN:
+        raise Exception("Attempted submit with no valid login token")
+    
+    scanid = scan["Id"]
+    
+    url = "%s/api/v2/Scans/%s/Executions" % (APPSCAN_SERVER, str(scanid))
+    xheaders = {
+        'content-type': 'application/json',
+        'Authorization': APPSCAN_TOKEN
+    }
 
-    return scanlist
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("Sending request \"" + str(url) + "\" with headers \"" + str(xheaders) + "\"")
+    res = requests.post(url, headers=xheaders)
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
+    if res.status_code >= 300:
+        raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
 
-# get appscan list of current jobs
+    response_execution = res.json()
+    scan["LatestExecution"]=response_execution
+    return scan
+
+# get appscan list of current scans
+# returns the list of scan information
 def appscan_list ():
     if not APPSCAN_TOKEN:
         raise Exception("Attempted submit with no valid login token")
 
-    url = "%s/api/BlueMix/DynamicAnalyzer/Scans/" % APPSCAN_SERVER
+    url = "%s/api/v2/Scans/" % APPSCAN_SERVER
     xheaders = {
         'content-type': 'application/json',
         'Authorization': APPSCAN_TOKEN
-
     }
 
     if python_utils.DEBUG:
@@ -241,65 +275,25 @@ def appscan_list ():
     rj = res.json()
     scanlist = []
     for scan in rj:
-        scanlist.append(scan["JobId"])
-
+        if scan["Technology"] == "DynamicAnalyzer":
+            scanlist.append(scan)
     return scanlist
 
-# translate a job state to a pretty name
-def get_state_name (state):
-    return {
-        0 : "Pending",
-        1 : "Starting",
-        2 : "Running",
-        3 : "FinishedRunning",
-        4 : "FinishedRunningWithErrors",
-        5 : "PendingSupport",
-        6 : "Ready",
-        7 : "ReadyIncomplete",
-        8 : "FailedToScan",
-        9 : "ManuallyStopped",
-        10 : "None",
-        11 : "Initiating",
-        12 : "MissingConfiguration",
-        13 : "PossibleMissingConfiguration"
-    }.get(state, "Unknown")
 
 # given a state, is the job completed
 def get_state_completed (state):
     return {
-        0 : False,
-        1 : False,
-        2 : False,
-        3 : True,
-        4 : True,
-        5 : False,
-        6 : True,
-        7 : True,
-        8 : True,
-        9 : True,
-        10 : True,
-        11 : False,
-        12 : True,
-        13 : True
+        "Running" : False,
+        "Ready" : True,
+        "Failed" : True
     }.get(state, True)
 
 # given a state, was it completed successfully
 def get_state_successful (state):
     return {
-        0 : False,
-        1 : False,
-        2 : False,
-        3 : True,
-        4 : False,
-        5 : False,
-        6 : True,
-        7 : False,
-        8 : False,
-        9 : False,
-        10 : False,
-        11 : False,
-        12 : False,
-        13 : False
+        "Running" : False,
+        "Ready" : True,
+        "Failed" : False
     }.get(state, False)
 
 # parse a key=value line, return value
@@ -313,48 +307,17 @@ def parse_key_eq_val (line):
     else:
         return None
 
-# extended info on a current appscan job.  this returns a dict for a json block like:
-#
-#  {
-#    "StartingUrl": "string",
-#    "LoginUser": "string",
-#    "NVisitedPages": 0,
-#    "NUnvisitedPages": 0,
-#    "NTestedEntities": 0,
-#    "NEntities": 0,
-#    "JobId": "string",
-#    "ScanId": "string",
-#    "Name": "string",
-#    "CreatedAt": "string",
-#    "ScanEndTime": "string",
-#    "UserMessage": "string",
-#    "PredefinedMessageKey": "string",
-#    "JobStatus": 0,
-#    "NIssuesFound": 0,
-#    "Result": 0,
-#    "ReadStatus": 0,
-#    "Progress": 0,
-#    "ParentJobId": "string",
-#    "EnableMailNotifications": true,
-#    "FreeRescanEndDate": "string",
-#    "OrigScanDate": "string",
-#    "LastRescanDate": "string",
-#    "NHighIssues": 0,
-#    "NMediumIssues": 0,
-#    "NLowIssues": 0,
-#    "NInfoIssues": 0
-#  }
-#
-def appscan_info (jobid):
+def refresh_appscan_info (scan):
 
     if not APPSCAN_TOKEN:
         raise Exception("Attempted submit with no valid login token")
-
-    url = "%s/api/BlueMix/DynamicAnalyzer/Scans/%s" % (APPSCAN_SERVER, str(jobid))
+    
+    scanid = scan["Id"]
+    
+    url = "%s/api/v2/Scans/DynamicAnalyzer/%s" % (APPSCAN_SERVER, str(scanid))
     xheaders = {
         'content-type': 'application/json',
         'Authorization': APPSCAN_TOKEN
-
     }
 
     if python_utils.DEBUG:
@@ -363,80 +326,77 @@ def appscan_info (jobid):
     if python_utils.DEBUG:
         python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
 
-    if res.status_code != 200:
+    if res.status_code >= 300:
         raise Exception("Unable to communicate with Dynamic Analysis service (list), status code " + str(res.status_code))
 
-    for job in res.json():
-        if job["JobId"] == jobid:
-            return job
+    response_scan = res.json()
+    if response_scan["Id"] == scanid:
+        return response_scan
 
     raise Exception("Job not found")
 
-# get status of a given job
-def appscan_status (jobid):
-    if jobid == None:
+# get status of a given scan
+def parse_status (scan):
+    if scan == None:
         raise Exception("No jobid to check status")
-
-    job = appscan_info(jobid)
-
-    if job:
-        return job["JobStatus"]
-
-    raise Exception("Unable to find job to check status")
+    return scan["LatestExecution"]["Status"]
 
 # if the job we would run is already up (and either pending or complete),
 # we just want to get state (and wait for it if needed), not create a whole
 # new submission.  for the key, we use the job name, compared to the
 # name template as per get_scanname_template()
-def check_for_existing_job ( ignore_older_jobs = True):
-    alljobs = appscan_list()
-    if alljobs == None:
+def check_for_existing_scan ( ignore_older_jobs = True):
+    allscans = appscan_list()
+    if allscans == None:
         # no jobs, ours can't be there
         return None
 
     # get the name we're looking for
-    job_name = get_scanname_template( include_version = ignore_older_jobs )
-    joblist = []
+    scan_name = get_scanname_template( include_version = ignore_older_jobs )
+    scanlist = []
     found = False
-    for jobid in alljobs:
-        results = appscan_info(jobid)
-        if results["Name"].startswith(job_name):
-            joblist.append(jobid)
+    for scan in allscans:
+        if scan["Name"].startswith(scan_name):
+            scanlist.append(scan)
             found = True
-
     if found:
-        return joblist
+        return scanlist
     else:
         return None
+        
+
 
 # wait for a given set of scans to complete and, if successful,
 # download the results
 def wait_for_scans (joblist):
     # were all jobs completed on return
+    
     all_jobs_complete = True
     # number of high sev issues in completed jobs
     high_issue_count = 0
     med_issue_count = 0
-    dash = python_utils.find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
+    dash = python_utils.find_service_dashboard(APP_SECURITY_SERVICE)
     for jobid in joblist:
         try:
             while True:
-                state = appscan_status(jobid)
-                python_utils.LOGGER.info("Job " + str(jobid) + " in state " + get_state_name(state))
+                scan = refresh_appscan_info(jobid)
+                state = parse_status(scan)
+                print scan
+                print state
+                python_utils.LOGGER.info("Job " + scan["Id"] + " in state " + state)
                 if get_state_completed(state):
-                    results = appscan_info(jobid)
                     if get_state_successful(state):
-                        high_issue_count += results["NHighIssues"]
-                        med_issue_count += results["NMediumIssues"]
-                        python_utils.LOGGER.info("Analysis successful (" + results["Name"] + ")")
+                        high_issue_count += scan["LatestExecution"]["NHighIssues"]
+                        med_issue_count += scan["LatestExecution"]["NMediumIssues"]
+                        python_utils.LOGGER.info("Analysis successful (" + scan["Name"] + ")")
                         #print "\tOther Message : " + msg
                         #appscan_get_result(jobid)
                         print python_utils.LABEL_GREEN + python_utils.STARS
-                        print "Analysis successful for job \"" + results["Name"] + "\""
-                        print "\tHigh Severity Issues   : " + str(results["NHighIssues"])
-                        print "\tMedium Severity Issues : " + str(results["NMediumIssues"])
-                        print "\tLow Severity Issues    : " + str(results["NLowIssues"])
-                        print "\tInfo Severity Issues   : " + str(results["NInfoIssues"])
+                        print "Analysis successful for job \"" + scan["Name"] + "\""
+                        print "\tHigh Severity Issues   : " + str(scan["LatestExecution"]["NHighIssues"])
+                        print "\tMedium Severity Issues : " + str(scan["LatestExecution"]["NMediumIssues"])
+                        print "\tLow Severity Issues    : " + str(scan["LatestExecution"]["NLowIssues"])
+                        print "\tInfo Severity Issues   : " + str(scan["LatestExecution"]["NInfoIssues"])
                         if dash != None:
                             print "See detailed results at: " + python_utils.LABEL_COLOR + " " + dash
                         print python_utils.LABEL_GREEN + python_utils.STARS + python_utils.LABEL_NO_COLOR
@@ -445,18 +405,18 @@ def wait_for_scans (joblist):
 
                     break
                 else:
-                    time_left = get_remaining_wait_time()
+                    time_left = python_utils.get_remaining_wait_time()
                     if (time_left > SLEEP_TIME):
                         time.sleep(SLEEP_TIME)
                     else:
                         # ran out of time, flag that at least one job didn't complete
                         all_jobs_complete = False
                         # get what info we can on this job
-                        results = appscan_info(jobid)
+                        scan = refresh_appscan_info(jobid)
                         # notify the user
                         print python_utils.LABEL_RED + python_utils.STARS
-                        print "Analysis incomplete for job \"" + results["Name"] + "\""
-                        print "\t" + str(results["Progress"]) + "% complete"
+                        print "Analysis incomplete for job \"" + scan["Name"] + "\""
+                        print "\t" + str(scan["LatestExecution"]["Progress"]) + "% complete"
                         if dash != None:
                             print "Track current state and results at: " + python_utils.LABEL_COLOR + " " + dash
                         print python_utils.LABEL_RED + "Increase the time to wait and rerun this job. The existing analysis will continue and be found and tracked."
@@ -473,6 +433,17 @@ def wait_for_scans (joblist):
 
 
 # begin main execution sequence
+
+#TODO: To rescan you have to provide the scanId of what you are rescanning
+#TODO: To rescan post to /api/v2/Scans/{scanId}/Executions
+#TODO: Recan is free for a month... you can get data on job about time remaining on free rescans
+#TODO: We should confirm URL before doing rescan
+#TODO: We should confirm other settings before doing a rescan
+
+#TODO: Follow-up on UserAgreeToPay...COST_APPROVED 
+
+#TODO:Get previous scan result and pass here
+
 
 try:
     parsed_args = parse_args()
@@ -495,10 +466,18 @@ try:
             print "sendMessage.sh not found, notifications not attempted"
 
     python_utils.LOGGER.info("Getting credentials for Dynamic Analysis service")
-    creds = python_utils.get_credentials_from_bound_app(service=DYNAMIC_ANALYSIS_SERVICE, plan=DEFAULT_SERVICE_PLAN)
+#    creds = python_utils.get_credentials_for_non_binding_service(service=APP_SECURITY_SERVICE)
+#    python_utils.LOGGER.info("Connecting to Dynamic Analysis service")
+#    appscan_login(creds['bindingid'],creds['password'])
+
+    #TODO: Add AD_BOUNT_APP to extension.json
+    #IFF a binding app is provided then we should log into the bound app, since the route might be auto-approved
+    if AD_BOUND_APP:
+        creds = python_utils.get_credentials_from_bound_app(service=APP_SECURITY_SERVICE, binding_app=AD_BOUND_APP)
+    else:
+        creds = python_utils.get_credentials_for_non_binding_service(service=APP_SECURITY_SERVICE)
     python_utils.LOGGER.info("Connecting to Dynamic Analysis service")
     appscan_login(creds['bindingid'],creds['password'])
-
     # allow testing connection without full job scan and submission
     if parsed_args['loginonly']:
         python_utils.LOGGER.info("LoginOnly set, login complete, exiting")
@@ -507,7 +486,7 @@ try:
         sys.exit(0)
 
     # see if we have related jobs (need this for both paths)
-    joblist = check_for_existing_job(ignore_older_jobs=False)
+    joblist = check_for_existing_scan(ignore_older_jobs=False)
     # if checkstate, don't really do a scan, just check state of current outstanding ones
     if parsed_args['checkstate']:
         # for checkstate, don't wait, just check current
@@ -516,29 +495,66 @@ try:
             # no related jobs, get whole list
             joblist = appscan_list()
     else:
-        # save list of old jobs, will need this if it's a rescan
+        # save list of old jobs
+        if joblist == None:
+            joblist = []
         old_joblist = joblist
+        joblist = []
+        #TODO: Go through the jobs and find out for each:
+        #      If it matches our AD_BASE_URL
+        #      If it is rerunnable for free
+        for job in old_joblist:
+            updated_job_info = refresh_appscan_info(job)
+            if updated_job_info:
+                job = updated_job_info
+            job_url = job["LatestExecution"]["StartingUrl"]
+            #put free rerun end date in a format strptime can understand
+            job_free_end = job["FreeRerunEndDate"].rstrip("Z")+"UTC"
+            #Check against 60 seconds into the future, to avoid accidentally charging
+            if job_url == AD_BASE_URL and time.strptime(job_free_end, "%Y-%m-%dT%H:%M:%S.%f%Z") > time.gmtime(time.time()+60):
+                print "FOUND JOB THAT MATCHES"
+                print job
+                joblist.append(job)
+        if joblist:
+            print "MATCHING JOBS FOUND"
+        else:
+            print "No matching jobs found"
+            joblist = None
+            
         # if the job we would run is already up (and either pending or complete),
         # we just want to get state (and wait for it if needed), not create a whole
         # new submission (check current version only at this point)
-        joblist = check_for_existing_job(ignore_older_jobs=True)
         if joblist == None:
+            #TODO: Check here that we have permission to spend money
+            joblist = []
             python_utils.LOGGER.info("Submitting URL for analysis")
-            joblist = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD, oldjobs=old_joblist)
+            job = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD, oldjobs=old_joblist)
+            joblist.append(job)
             python_utils.LOGGER.info("Waiting for analysis to complete")
         else:
-            python_utils.LOGGER.info("Existing job found, connecting")
+            #TODO: Check here if status is Running, if running, just wait on it and report.  If not running, then rescan
+            python_utils.LOGGER.info("Existing job found, checking status")
+            for job in joblist:
+                job_state = job["LatestExecution"]["Status"]
+                if job_state == "Running":
+                    python_utils.LOGGER.info("Existing scan is running, a new scan will not be started")
+                    break
+                else:
+                    job = rescan_submit(job)
+                    joblist = []
+                    joblist.append(job)
+                    break
 
     # check on pending jobs, waiting if appropriate
     all_jobs_complete, high_issue_count, med_issue_count = wait_for_scans(joblist)
 
     # prebuild common substrings
-    dash = python_utils.find_service_dashboard(DYNAMIC_ANALYSIS_SERVICE)
+    dash = python_utils.find_service_dashboard(APP_SECURITY_SERVICE)
     # if we didn't successfully complete jobs, return that we timed out
     if not all_jobs_complete:
         # send slack notification 
         if os.path.isfile("%s/utilities/sendMessage.sh" % python_utils.EXT_DIR):
-            command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> did not complete within {wait} minutes.  Stage will need to be re-run after the scan completes.\"'.format(path=python_utils.EXT_DIR,url=dash,wait=FULL_WAIT_TIME)
+            command='{path}/utilities/sendMessage.sh -l bad -m \"<{url}|Dynamic security scan> did not complete within {wait} minutes.  Stage will need to be re-run after the scan completes.\"'.format(path=python_utils.EXT_DIR,url=dash,wait=python_utils.FULL_WAIT_TIME)
             proc = Popen([command], shell=True, stdout=PIPE, stderr=PIPE)
             out, err = proc.communicate();
             python_utils.LOGGER.debug(out)
