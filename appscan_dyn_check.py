@@ -470,7 +470,6 @@ try:
 #    python_utils.LOGGER.info("Connecting to Dynamic Analysis service")
 #    appscan_login(creds['bindingid'],creds['password'])
 
-    #TODO: Add AD_BOUNT_APP to extension.json
     #IFF a binding app is provided then we should log into the bound app, since the route might be auto-approved
     if AD_BOUND_APP:
         creds = python_utils.get_credentials_from_bound_app(service=APP_SECURITY_SERVICE, binding_app=AD_BOUND_APP)

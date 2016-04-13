@@ -27,6 +27,14 @@
             "default_value": "/",
             "label_key": "TARGET_KEY",
             "desc_key": "TARGET_DESC"
+        },
+        {
+            "name": "AD_BOUND_APP",
+            "type": "Text",
+            "required": "false",
+            "default_value": "",
+            "label_key": "APPLICATION_KEY",
+            "desc_key": "APPLICATION_DESC"
         }
     ],
     "outputs": [
