@@ -52,6 +52,14 @@
                     "label_key": "SCAN_TYPE_STAGE",
                     "value": "Staging"
                 }]
+        },
+        {
+            "name": "WAIT_TIME",
+            "type": "Text",
+            "required": "false",
+            "default_value": "5",
+            "label_key": "WAIT_TIME_KEY",
+            "desc_key": "WAIT_TIME_DESC"
         }
     ],
     "outputs": [
@@ -67,6 +75,7 @@ export SETUP_SERVICE_SPACE=#SETUP_SERVICE_SPACE#
 export AD_BASE_URL=#TARGET#
 export AD_BOUND_APP=#AD_BOUND_APP#
 export AD_SCAN_TYPE=#AD_SCAN_TYPE#
+export WAIT_TIME=#WAIT_TIME#
 set +x 
 set +e 
 . $EXT_DIR/_init.sh
