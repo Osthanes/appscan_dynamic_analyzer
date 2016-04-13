@@ -35,6 +35,23 @@
             "default_value": "",
             "label_key": "APPLICATION_KEY",
             "desc_key": "APPLICATION_DESC"
+        },
+        {
+            "name": "AD_SCAN_TYPE",
+            "type": "Select",
+            "required": false,
+            "label_key": "SCAN_TYPE_KEY",
+            "desc_key": "SCAN_TYPE_DESC",
+            "default_value": "Production",
+            "options": [ 
+                {
+                    "label_key": "SCAN_TYPE_PROD",
+                    "value": "Production" 
+                },
+                {
+                    "label_key": "SCAN_TYPE_STAGE",
+                    "value": "Staging"
+                }]
         }
     ],
     "outputs": [
@@ -52,7 +69,14 @@ set +x
 set +e 
 . $EXT_DIR/_init.sh
 
-echo -e \"${red}To be implemented${no_color}\""
+if [ -f ${EXT_DIR}/appscan_dyn_check.py ]; then 
+    if [[ $DEBUG -eq 1 ]]; then
+       ${EXT_DIR}/appscan_dyn_check.py --debug
+    else
+       ${EXT_DIR}/appscan_dyn_check.py
+    fi
+    RESULT=$?
+    "
     }
     },
     "project": "https://hub.jazz.net/project/alchemy/Alchemy-Ostanes",

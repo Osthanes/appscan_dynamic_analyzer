@@ -206,14 +206,14 @@ if [ -n "$BLUEMIX_TARGET" ]; then
         export APPSCAN_ENV=https://appscan-test.bluemix.net
     elif [ "$BLUEMIX_TARGET" == "prod" ]; then 
         # prod
-        export APPSCAN_ENV=https://appscan.ibmcloud.com
+        export APPSCAN_ENV=https://appscan.bluemix.net
     else 
         # unknown, setup for prod
-        export APPSCAN_ENV=https://appscan.ibmcloud.com
+        export APPSCAN_ENV=https://appscan.bluemix.net
     fi 
 else 
     # none set, set for prod
-    export APPSCAN_ENV=https://appscan.ibmcloud.com
+    export APPSCAN_ENV=https://appscan.bluemix.net
 fi
 
 echo -e "${label_color}Initialization complete${no_color}"
