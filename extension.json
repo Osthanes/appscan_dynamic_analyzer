@@ -63,8 +63,10 @@
     "execution": {
         "type": "JenkinsDocker",
         "shell": "#!/bin/bash
-export IMAGE_NAME=#IMAGE_NAME#
-export USE_CACHED_LAYERS=#USE_CACHED_LAYERS#
+export SETUP_SERVICE_SPACE=#SETUP_SERVICE_SPACE#
+export TARGET=#TARGET#
+export AD_BOUND_APP=#AD_BOUND_APP#
+export AD_SCAN_TYPE=#AD_SCAN_TYPE#
 set +x 
 set +e 
 . $EXT_DIR/_init.sh
@@ -76,7 +78,7 @@ if [ -f ${EXT_DIR}/appscan_dyn_check.py ]; then
        ${EXT_DIR}/appscan_dyn_check.py
     fi
     RESULT=$?
-    "
+fi"
     }
     },
     "project": "https://hub.jazz.net/project/alchemy/Alchemy-Ostanes",
