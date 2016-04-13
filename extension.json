@@ -78,6 +78,15 @@ if [ -f ${EXT_DIR}/appscan_dyn_check.py ]; then
        ${EXT_DIR}/appscan_dyn_check.py
     fi
     RESULT=$?
+    if [ $RESULT -ne 0 ]; then
+        log_and_echo \"$ERROR\" \"Error running IBM Security Dynamic Analyzer\"
+        exit 1
+    else
+        log_and_echo \"$SUCCESSFUL\" \"Application scan was successful\"
+    fi
+else
+    log_and_echo \"$ERROR\" \"Error running IBM Security Static Analyzer\"
+    exit 1
 fi"
     }
     },

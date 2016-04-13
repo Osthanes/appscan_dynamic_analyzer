@@ -194,6 +194,7 @@ export PYTHONPATH=$EXT_DIR/utilities:$PYTHONPATH
 popd >/dev/null
 # enable logging to logmet
 source $EXT_DIR/utilities/logging_utils.sh
+
 setup_met_logging "${BLUEMIX_USER}" "${BLUEMIX_PASSWORD}" "${BLUEMIX_SPACE}" "${BLUEMIX_ORG}" "${BLUEMIX_TARGET}"
 
 
