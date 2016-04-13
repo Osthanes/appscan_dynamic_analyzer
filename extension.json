@@ -64,7 +64,7 @@
         "type": "JenkinsDocker",
         "shell": "#!/bin/bash
 export SETUP_SERVICE_SPACE=#SETUP_SERVICE_SPACE#
-export TARGET=#TARGET#
+export AD_BASE_URL=#TARGET#
 export AD_BOUND_APP=#AD_BOUND_APP#
 export AD_SCAN_TYPE=#AD_SCAN_TYPE#
 set +x 
