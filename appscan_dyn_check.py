@@ -50,7 +50,6 @@ APPSCAN_TOKEN = None
 # default to not approved to spend money
 COST_APPROVED = False
 SCAN_TYPE = None
-
 # some appscan defines - production scan tries harder to be
 # nondestructive.  staging is more willing to submit posts, deletes, etc
 APPSCAN_SCAN_TYPE_PRODUCTION = "Production"
@@ -58,7 +57,7 @@ APPSCAN_SCAN_TYPE_STAGING    = "Staging"
 
 # check cli args, set globals appropriately
 def parse_args ():
-    global APPSCAN_SERVER, AD_BASE_URL, AD_USER, AD_PWD, IDS_PROJECT_NAME, SCAN_TYPE, COST_APPROVED, AD_BOUND_APP
+    global APPSCAN_SERVER, AD_BASE_URL, AD_USER, AD_PWD, IDS_PROJECT_NAME, SCAN_TYPE, COST_APPROVED, AD_BOUND_APP, SCAN_TYPE
     parsed_args = {}
     parsed_args['loginonly'] = False
     parsed_args['checkstate'] = False
@@ -94,10 +93,6 @@ def parse_args ():
     IDS_PROJECT_NAME = os.environ.get('IDS_PROJECT_NAME')
     if IDS_PROJECT_NAME:
         IDS_PROJECT_NAME = IDS_PROJECT_NAME.replace(" | ", "-")
-    AD_APPROVED = os.environ.get('AD_APPROVED')
-    if AD_APPROVED:
-        if AD_APPROVED == "1" or AD_APPROVED == "true" or AD_APPROVED == "True":
-            COST_APPROVED = True
     return parsed_args
 
 # print a quick usage/help statement
@@ -117,8 +112,8 @@ def print_help ():
     print "\t   AD_USER        : userid to login to the scanned pages, if necessary (optional)"
     print "\t   AD_PWD         : password to login to the scanned pages, if necessary (optional)"
     print "\t   WAIT_TIME      : time in minutes to wait for the scan to complete (optional, default 5)"
-    print "\t   AD_APPROVED    : flag indicating approval to spend money on a new scan."
-    print "\t                  : If not set, only free rescanning will be performed"
+    print "\t   SETUP_SERVICE_SPACE    : flag indicating approval to setup the service."
+    print "\t                          : Service must be in your space if this flag set is not set."
     print "\t   AD_SCAN_TYPE   : \"Production\" or \"Staging\".  \"Staging\" can be a destructive scan"
     print ""
 
@@ -128,6 +123,7 @@ def print_help ():
 # "<scanname>-<type>-<version>" where scanname comes from env var 
 # 'SUBMISSION_NAME', type comes from env var AD_SCAN_TYPE, and 
 # version comes from env var 'APPLICATION_VERSION'
+# because type of scan is not included in scan detail, we use it in naming convention
 def get_scanname_template (include_version=True):
     # check the env for name of the scan, else use default
     if os.environ.get('SUBMISSION_NAME'):
@@ -192,7 +188,7 @@ def appscan_submit (baseurl, baseuser=None, basepwd=None, oldjobs=None):
     body_struct = {}
     body_struct["ScanName"] = get_scanname_template()
     body_struct["StartingUrl"] = baseurl
-    body_struct["ScanType"] = APPSCAN_SCAN_TYPE_STAGING
+    body_struct["ScanType"] = SCAN_TYPE
     if baseuser:
         body_struct["LoginUser"] = baseuser
     if basepwd:
@@ -434,15 +430,7 @@ def wait_for_scans (joblist):
 
 # begin main execution sequence
 
-#TODO: To rescan you have to provide the scanId of what you are rescanning
-#TODO: To rescan post to /api/v2/Scans/{scanId}/Executions
-#TODO: Recan is free for a month... you can get data on job about time remaining on free rescans
-#TODO: We should confirm URL before doing rescan
-#TODO: We should confirm other settings before doing a rescan
-
 #TODO: Follow-up on UserAgreeToPay...COST_APPROVED 
-
-#TODO:Get previous scan result and pass here
 
 
 try:
@@ -470,7 +458,7 @@ try:
 #    python_utils.LOGGER.info("Connecting to Dynamic Analysis service")
 #    appscan_login(creds['bindingid'],creds['password'])
 
-    #IFF a binding app is provided then we should log into the bound app, since the route might be auto-approved
+    #get_credentials_from_bound_app will bind the app if SETUP_SERVICE_SPACE is true
     if AD_BOUND_APP:
         creds = python_utils.get_credentials_from_bound_app(service=APP_SECURITY_SERVICE, binding_app=AD_BOUND_APP)
     else:
@@ -499,9 +487,10 @@ try:
             joblist = []
         old_joblist = joblist
         joblist = []
-        #TODO: Go through the jobs and find out for each:
+        #     Go through the jobs and find out for each:
         #      If it matches our AD_BASE_URL
         #      If it is rerunnable for free
+        #      Because staging/production is not returend in scan detail, we use it in naming convention
         for job in old_joblist:
             updated_job_info = refresh_appscan_info(job)
             if updated_job_info:
@@ -524,14 +513,13 @@ try:
         # we just want to get state (and wait for it if needed), not create a whole
         # new submission (check current version only at this point)
         if joblist == None:
-            #TODO: Check here that we have permission to spend money
             joblist = []
             python_utils.LOGGER.info("Submitting URL for analysis")
             job = appscan_submit(AD_BASE_URL, baseuser=AD_USER, basepwd=AD_PWD, oldjobs=old_joblist)
             joblist.append(job)
             python_utils.LOGGER.info("Waiting for analysis to complete")
         else:
-            #TODO: Check here if status is Running, if running, just wait on it and report.  If not running, then rescan
+            #Check here if status is Running, if running, just wait on it and report.  If not running, then rescan
             python_utils.LOGGER.info("Existing job found, checking status")
             for job in joblist:
                 job_state = job["LatestExecution"]["Status"]
