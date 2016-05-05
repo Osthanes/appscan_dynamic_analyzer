@@ -190,9 +190,11 @@ fi
 # get the extensions utilities
 pushd $EXT_DIR >/dev/null
 git clone https://github.com/Osthanes/utilities.git utilities
+export PYTHONPATH=$EXT_DIR/utilities:$PYTHONPATH
 popd >/dev/null
 # enable logging to logmet
 source $EXT_DIR/utilities/logging_utils.sh
+
 setup_met_logging "${BLUEMIX_USER}" "${BLUEMIX_PASSWORD}" "${BLUEMIX_SPACE}" "${BLUEMIX_ORG}" "${BLUEMIX_TARGET}"
 
 
@@ -206,14 +208,14 @@ if [ -n "$BLUEMIX_TARGET" ]; then
         export APPSCAN_ENV=https://appscan-test.bluemix.net
     elif [ "$BLUEMIX_TARGET" == "prod" ]; then 
         # prod
-        export APPSCAN_ENV=https://appscan.ibmcloud.com
+        export APPSCAN_ENV=https://appscan.bluemix.net
     else 
         # unknown, setup for prod
-        export APPSCAN_ENV=https://appscan.ibmcloud.com
+        export APPSCAN_ENV=https://appscan.bluemix.net
     fi 
 else 
     # none set, set for prod
-    export APPSCAN_ENV=https://appscan.ibmcloud.com
+    export APPSCAN_ENV=https://appscan.bluemix.net
 fi
 
 echo -e "${label_color}Initialization complete${no_color}"

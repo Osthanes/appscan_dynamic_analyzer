@@ -27,6 +27,39 @@
             "default_value": "/",
             "label_key": "TARGET_KEY",
             "desc_key": "TARGET_DESC"
+        },
+        {
+            "name": "AD_BOUND_APP",
+            "type": "Text",
+            "required": "false",
+            "default_value": "",
+            "label_key": "APPLICATION_KEY",
+            "desc_key": "APPLICATION_DESC"
+        },
+        {
+            "name": "AD_SCAN_TYPE",
+            "type": "Select",
+            "required": false,
+            "label_key": "SCAN_TYPE_KEY",
+            "desc_key": "SCAN_TYPE_DESC",
+            "default_value": "Production",
+            "options": [ 
+                {
+                    "label_key": "SCAN_TYPE_PROD",
+                    "value": "Production" 
+                },
+                {
+                    "label_key": "SCAN_TYPE_STAGE",
+                    "value": "Staging"
+                }]
+        },
+        {
+            "name": "WAIT_TIME",
+            "type": "Text",
+            "required": "false",
+            "default_value": "5",
+            "label_key": "WAIT_TIME_KEY",
+            "desc_key": "WAIT_TIME_DESC"
         }
     ],
     "outputs": [
@@ -38,13 +71,32 @@
     "execution": {
         "type": "JenkinsDocker",
         "shell": "#!/bin/bash
-export IMAGE_NAME=#IMAGE_NAME#
-export USE_CACHED_LAYERS=#USE_CACHED_LAYERS#
+export SETUP_SERVICE_SPACE=#SETUP_SERVICE_SPACE#
+export AD_BASE_URL=#TARGET#
+export AD_BOUND_APP=#AD_BOUND_APP#
+export AD_SCAN_TYPE=#AD_SCAN_TYPE#
+export WAIT_TIME=#WAIT_TIME#
 set +x 
 set +e 
 . $EXT_DIR/_init.sh
 
-echo -e \"${red}To be implemented${no_color}\""
+if [ -f ${EXT_DIR}/appscan_dyn_check.py ]; then 
+    if [[ $DEBUG -eq 1 ]]; then
+       ${EXT_DIR}/appscan_dyn_check.py --debug
+    else
+       ${EXT_DIR}/appscan_dyn_check.py
+    fi
+    RESULT=$?
+    if [ $RESULT -ne 0 ]; then
+        log_and_echo \"$ERROR\" \"Error running IBM Security Dynamic Analyzer\"
+        exit 1
+    else
+        log_and_echo \"$SUCCESSFUL\" \"Application scan was successful\"
+    fi
+else
+    log_and_echo \"$ERROR\" \"Error running IBM Security Static Analyzer\"
+    exit 1
+fi"
     }
     },
     "project": "https://hub.jazz.net/project/alchemy/Alchemy-Ostanes",
