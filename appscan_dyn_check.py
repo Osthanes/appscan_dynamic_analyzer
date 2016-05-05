@@ -377,8 +377,6 @@ def wait_for_scans (joblist):
             while True:
                 scan = refresh_appscan_info(jobid)
                 state = parse_status(scan)
-                print scan
-                print state
                 python_utils.LOGGER.info("Job " + scan["Id"] + " in state " + state)
                 if get_state_completed(state):
                     if get_state_successful(state):
@@ -500,13 +498,12 @@ try:
             job_free_end = job["FreeRerunEndDate"].rstrip("Z")+"UTC"
             #Check against 60 seconds into the future, to avoid accidentally charging
             if job_url == AD_BASE_URL and time.strptime(job_free_end, "%Y-%m-%dT%H:%M:%S.%f%Z") > time.gmtime(time.time()+60):
-                print "FOUND JOB THAT MATCHES"
-                print job
+                python_utils.LOGGER.debug("Found matching job "+str(job))
                 joblist.append(job)
         if joblist:
-            print "MATCHING JOBS FOUND"
+            python_utils.LOGGER.info("Matching jobs found")
         else:
-            print "No matching jobs found"
+            python_utils.LOGGER.info("No matching jobs found")
             joblist = None
             
         # if the job we would run is already up (and either pending or complete),
