@@ -29,6 +29,22 @@
             "desc_key": "TARGET_DESC"
         },
         {
+            "name": "AD_USER",
+            "type": "Text",
+            "required": "false",
+            "default_value": "",
+            "label_key": "USER_KEY",
+            "desc_key": "USER_DESC"
+        },
+        {
+            "name": "AD_PWD",
+            "type": "Text",
+            "required": "false",
+            "default_value": "",
+            "label_key": "PASSWORD_KEY",
+            "desc_key": "PASSWORD_DESC"
+        },
+        {
             "name": "AD_BOUND_APP",
             "type": "Text",
             "required": "false",
@@ -73,8 +89,10 @@
         "shell": "#!/bin/bash
 export SETUP_SERVICE_SPACE=#SETUP_SERVICE_SPACE#
 export AD_BASE_URL=#TARGET#
-export AD_BOUND_APP=#AD_BOUND_APP#
+export AD_BOUND_APP=\"#AD_BOUND_APP#\"
 export AD_SCAN_TYPE=#AD_SCAN_TYPE#
+export AD_USER=\"#AD_USER#\"
+export AD_PWD=\"#AD_PWD#\"
 export WAIT_TIME=#WAIT_TIME#
 set +x 
 set +e 
