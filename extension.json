@@ -41,8 +41,8 @@
             "type": "Text",
             "required": "false",
             "default_value": "",
-            "label_key": "PASSWORD_KEY",
-            "desc_key": "PASSWORD_DESC"
+            "label_key": "PWD_KEY",
+            "desc_key": "PWD_DESC"
         },
         {
             "name": "AD_BOUND_APP",
