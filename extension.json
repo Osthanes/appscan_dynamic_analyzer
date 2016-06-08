@@ -38,7 +38,7 @@
         },
         {
             "name": "AD_PWD",
-            "type": "Text",
+            "type": "Secure",
             "required": "false",
             "default_value": "",
             "label_key": "PWD_KEY",
