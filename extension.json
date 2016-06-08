@@ -30,7 +30,7 @@
         },
         {
             "name": "AD_USER",
-            "type": "Text",
+            "type": "Secure",
             "required": "false",
             "default_value": "",
             "label_key": "USER_KEY",
