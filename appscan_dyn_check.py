@@ -27,6 +27,7 @@ import timeit
 from datetime import datetime
 from subprocess import call, Popen, PIPE
 import python_utils
+import subprocess
 
 APP_SECURITY_SERVICE='Application Security on Cloud'
 DEFAULT_SERVICE=APP_SECURITY_SERVICE
@@ -331,6 +332,36 @@ def refresh_appscan_info (scan):
 
     raise Exception("Job not found")
 
+def get_appscan_xml_report (scan):
+
+    if not APPSCAN_TOKEN:
+        raise Exception("Attempted to get report with no valid login token")
+    
+    scanid = scan["Id"]
+    
+    url = "%s/api/v2/Scans/%s/Report/xml" % (APPSCAN_SERVER, str(scanid))
+    xheaders = {
+        'content-type': 'application/json',
+        'Authorization': APPSCAN_TOKEN
+    }
+
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("Sending request \"" + str(url) + "\" with headers \"" + str(xheaders) + "\"")
+    res = requests.get(url, headers=xheaders)
+    if python_utils.DEBUG:
+        python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
+
+    if res.status_code >= 300:
+        raise Exception("Unable to communicate with Dynamic Analysis service (xml report), status code " + str(res.status_code))
+    
+    #
+    # Store the appscan report
+    f = open( "appscan_%s.xml" % (str(scanid)),'w' )
+    f.write( res.text )
+    f.close()
+    
+    return True
+
 # get status of a given scan
 def parse_status (scan):
     if scan == None:
@@ -391,6 +422,12 @@ def wait_for_scans (joblist):
                         print "\tMedium Severity Issues : " + str(scan["LatestExecution"]["NMediumIssues"])
                         print "\tLow Severity Issues    : " + str(scan["LatestExecution"]["NLowIssues"])
                         print "\tInfo Severity Issues   : " + str(scan["LatestExecution"]["NInfoIssues"])
+                        
+                        if os.environ.get('DRA_IS_PRESENT') == "1":
+                            if python_utils.DEBUG:
+                                print "DRA is PRESENT"
+                            get_appscan_xml_report( scan )
+                        
                         if dash != None:
                             print "See detailed results at: " + python_utils.LABEL_COLOR + " " + dash
                         print python_utils.LABEL_GREEN + python_utils.STARS + python_utils.LABEL_NO_COLOR
@@ -423,6 +460,9 @@ def wait_for_scans (joblist):
             if python_utils.DEBUG:
                 python_utils.LOGGER.debug("exception in wait_for_scans: " + str(e))
 
+    # Upload appscan.xml files to DRA
+    subprocess.call( "./dra.sh", shell=True )
+    
     return all_jobs_complete, high_issue_count, med_issue_count
 
 

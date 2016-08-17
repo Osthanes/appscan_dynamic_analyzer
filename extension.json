@@ -97,6 +97,10 @@ export WAIT_TIME=#WAIT_TIME#
 set +x 
 set +e 
 . $EXT_DIR/_init.sh
+        
+# Calls OTC api to determine if DRA is present.
+callOpenToolchainAPI
+installDRADependencies
 
 if [ -f ${EXT_DIR}/appscan_dyn_check.py ]; then 
     if [[ $DEBUG -eq 1 ]]; then

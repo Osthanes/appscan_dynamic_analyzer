@@ -218,4 +218,16 @@ else
     export APPSCAN_ENV=https://appscan.bluemix.net
 fi
 
+
+###############
+# setup DRA
+###############
+pushd $EXT_DIR >/dev/null
+git clone https://github.com/jparra5/dra_utilities.git dra_utilities
+popd >/dev/null
+
+# Call common initialization
+source $EXT_DIR/dra_utilities/init.sh
+
+
 echo -e "${label_color}Initialization complete${no_color}"
