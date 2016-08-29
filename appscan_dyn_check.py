@@ -461,7 +461,8 @@ def wait_for_scans (joblist):
                 python_utils.LOGGER.debug("exception in wait_for_scans: " + str(e))
 
     # Upload appscan.xml files to DRA
-    subprocess.call( "./dra.sh", shell=True )
+    if os.environ.get('DRA_IS_PRESENT') == "1":
+        subprocess.call( "./dra.sh", shell=True )
     
     return all_jobs_complete, high_issue_count, med_issue_count
 
