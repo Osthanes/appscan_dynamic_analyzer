@@ -1,6 +1,4 @@
-
-
-
+#!/bin/bash
 
 function dra_commands {
     echo -e "${no_color}"
@@ -30,7 +28,7 @@ function dra_commands {
     debugme echo -e "${no_color}"
 
 
-    eval "$dra_grunt_command --no-color"
+    eval "$dra_grunt_command -f --no-color"
     GRUNT_RESULT=$?
 
     debugme echo "GRUNT_RESULT: $GRUNT_RESULT"
@@ -47,37 +45,28 @@ function dra_commands {
 
 
 
+echo ""
 
+for fullReport in appscan-*.xml;
+do
 
+    # full report location
+    export DRA_LOG_FILE="$EXT_DIR/$fullReport"
+    # summary report location. Replace appscan-app.zip with appscan-app.json.
+    export DRA_SUMMARY_FILE="$EXT_DIR/${fullReport%.xml}.json"
 
+    if [ -n "${ENV_NAME}" ] && [ "${ENV_NAME}" != " " ] && \
+        [ -n "${APP_NAME}" ] && [ "${APP_NAME}" != " " ]; then
 
-dir=`pwd`
-export DRA_LOG_FILE="$dir/appscan_*.xml"
-
-
-
-if [ -n "${ENV_NAME}" ] && [ "${ENV_NAME}" != " " ] && \
-    [ -n "${APP_NAME}" ] && [ "${APP_NAME}" != " " ]; then
-
-    if [ -n "${DRA_LOG_FILE}" ] && [ "${DRA_LOG_FILE}" != " " ]; then
-
-        for file in ${DRA_LOG_FILE}
-        do
-            filename=$(basename "$file")
-            extension="${filename##*.}"
-            filename="${filename%.*}"
-
-            dra_commands "$file" "${ENV_NAME}" "${APP_NAME}" "$filename.$extension" "codescan"
-        done
+        # upload the full appscan report
+        dra_commands "${DRA_LOG_FILE}" "${ENV_NAME}" "${APP_NAME}" "${fullReport}" "codescan"
+        # upload the summary appscan report
+        dra_commands "${DRA_SUMMARY_FILE}" "${ENV_NAME}" "${APP_NAME}" "${fullReport%.xml}.json" "codescansummary"
 
     else
         echo -e "${no_color}"
-        echo -e "${red}Location must be declared."
+        echo -e "${red}Deployment Risk Analytics requires the Environment Name (ENV_NAME) and Application Name (APP_NAME) variables."
         echo -e "${no_color}"
     fi
-
-else
-    echo -e "${no_color}"
-    echo -e "${red}Environment Name and Application Name must be declared."
-    echo -e "${no_color}"
-fi
+    
+done

@@ -347,20 +347,48 @@ def get_appscan_xml_report (scan):
 
     if python_utils.DEBUG:
         python_utils.LOGGER.debug("Sending request \"" + str(url) + "\" with headers \"" + str(xheaders) + "\"")
+    
     res = requests.get(url, headers=xheaders)
+    # App name might have a space.
+    scan_name = scan["Name"].replace(" ", "-");
+    content = res.text.encode('ascii', 'ignore');
+    
     if python_utils.DEBUG:
-        python_utils.LOGGER.debug("received status " + str(res.status_code) + " and data " + str(res.text))
+        python_utils.LOGGER.debug("received status " + str(res.status_code))
 
     if res.status_code >= 300:
         raise Exception("Unable to communicate with Dynamic Analysis service (xml report), status code " + str(res.status_code))
     
+    
+    
     #
     # Store the appscan report
-    f = open( "appscan_%s.xml" % (str(scanid)),'w' )
-    f.write( res.text )
+    f = open( os.environ.get('EXT_DIR') + "/appscan-" + str(scan_name) + ".xml",'w' )
+    f.write( content )
     f.close()
     
     return True
+
+# get the result file for a given job
+def save_job_result (scan_name, job_result):
+
+    # App name might have a space.
+    scan_name = scan_name.replace(" ", "-");
+
+    # Store the job result summary
+    with open(os.environ.get('EXT_DIR') + "/appscan-" + str(scan_name) + ".json", 'w') as outfile:
+        json.dump(job_result, outfile, sort_keys = True)
+
+# get the result file for a given job
+def upload_results_to_dra ():
+    
+    proc = Popen(["./dra.sh"],
+                      shell=True, stdout=PIPE, stderr=PIPE, cwd=os.environ.get('EXT_DIR'))
+    out, err = proc.communicate();
+
+
+    print "Out = " + out
+    print "Err = " + err
 
 # get status of a given scan
 def parse_status (scan):
@@ -424,9 +452,15 @@ def wait_for_scans (joblist):
                         print "\tInfo Severity Issues   : " + str(scan["LatestExecution"]["NInfoIssues"])
                         
                         if os.environ.get('DRA_IS_PRESENT') == "1":
-                            if python_utils.DEBUG:
-                                print "DRA is PRESENT"
-                            get_appscan_xml_report( scan )
+                            job_result = {  'job_name': scan["Name"],
+                                            'job_id': scan["Id"],
+                                            'status': "successful",
+                                            'high_severity_issues': int(str(scan["LatestExecution"]["NHighIssues"])),
+                                            'medium_severity_issues': int(str(scan["LatestExecution"]["NMediumIssues"])),
+                                            'low_severity_issues': int(str(scan["LatestExecution"]["NLowIssues"])),
+                                            'info_severity_issues': int(str(scan["LatestExecution"]["NInfoIssues"]))}
+                            get_appscan_xml_report(scan)
+                            save_job_result(scan["Name"], job_result)
                         
                         if dash != None:
                             print "See detailed results at: " + python_utils.LABEL_COLOR + " " + dash
@@ -462,7 +496,7 @@ def wait_for_scans (joblist):
 
     # Upload appscan.xml files to DRA
     if os.environ.get('DRA_IS_PRESENT') == "1":
-        subprocess.call( "./dra.sh", shell=True )
+        upload_results_to_dra()
     
     return all_jobs_complete, high_issue_count, med_issue_count
 
