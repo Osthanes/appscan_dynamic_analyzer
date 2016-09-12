@@ -118,23 +118,53 @@ fi
 popd >/dev/null
 echo -e "${label_color}Successfully installed Cloud Foundry CLI ${no_color}"
 
-#################################
-# Set Bluemix Host Information  #
-#################################
-if [ -n "$BLUEMIX_TARGET" ]; then
+################################
+# get the extensions utilities #
+################################
+pushd $EXT_DIR >/dev/null
+git clone https://github.com/Osthanes/utilities.git utilities
+export PYTHONPATH=$EXT_DIR/utilities:$PYTHONPATH
+popd >/dev/null
+source $EXT_DIR/utilities/logging_utils.sh
+
+
+##########################################
+# setup bluemix env
+##########################################
+# attempt to  target env automatically
+CF_API=$(${EXT_DIR}/cf api)
+RESULT=$?
+debugme echo "CF_API: ${CF_API}"
+if [ $RESULT -eq 0 ]; then
+    # find the bluemix api host
+    export BLUEMIX_API_HOST=`echo $CF_API  | awk '{print $3}' | sed '0,/.*\/\//s///'`
+    echo $BLUEMIX_API_HOST | grep 'stage1'
+    if [ $? -eq 0 ]; then
+        # on staging, make sure bm target is set for staging
+        export BLUEMIX_TARGET="staging"
+        export BLUEMIX_API_HOST="api.stage1.ng.bluemix.net"
+    else
+        # on prod, make sure bm target is set for prod
+        export BLUEMIX_TARGET="prod"
+        export BLUEMIX_API_HOST="api.ng.bluemix.net"
+    fi
+elif [ -n "$BLUEMIX_TARGET" ]; then
+    # cf not setup yet, try manual setup
     if [ "$BLUEMIX_TARGET" == "staging" ]; then 
+        log_and_echo "$INFO" "Targeting staging Bluemix"
         export BLUEMIX_API_HOST="api.stage1.ng.bluemix.net"
     elif [ "$BLUEMIX_TARGET" == "prod" ]; then 
-        echo -e "Targetting production Bluemix"
+        log_and_echo "$INFO" "Targeting production Bluemix"
         export BLUEMIX_API_HOST="api.ng.bluemix.net"
     else 
-        echo -e "${red}Unknown Bluemix environment specified"
+        log_and_echo "$INFO" "$ERROR" "Unknown Bluemix environment specified"
     fi 
 else 
-    echo -e "Targetting production Bluemix"
+    log_and_echo "$INFO" "Targeting production Bluemix"
     export BLUEMIX_API_HOST="api.ng.bluemix.net"
+fi
 
-fi  
+
 
 ############################
 # Check login to Bluemix   #
@@ -158,7 +188,7 @@ if [ -n "$BLUEMIX_USER" ] || [ ! -f ~/.cf/config.json ]; then
         export BLUEMIX_SPACE="dev"
         echo -e "${label_color} Using ${BLUEMIX_SPACE} for Bluemix space, please set BLUEMIX_SPACE if on the environment if you wish to change this. ${no_color} "
     fi 
-    echo -e "${label_color}Targetting information.  Can be updated by setting environment variables${no_color}"
+    echo -e "${label_color}Targeting information.  Can be updated by setting environment variables${no_color}"
     echo "BLUEMIX_USER: ${BLUEMIX_USER}"
     echo "BLUEMIX_SPACE: ${BLUEMIX_SPACE}"
     echo "BLUEMIX_ORG: ${BLUEMIX_ORG}"
@@ -187,13 +217,8 @@ else
     echo -e "${green}Successfully logged into IBM Bluemix${no_color}"
 fi 
 
-# get the extensions utilities
-pushd $EXT_DIR >/dev/null
-git clone https://github.com/Osthanes/utilities.git utilities
-export PYTHONPATH=$EXT_DIR/utilities:$PYTHONPATH
-popd >/dev/null
+
 # enable logging to logmet
-source $EXT_DIR/utilities/logging_utils.sh
 
 setup_met_logging "${BLUEMIX_USER}" "${BLUEMIX_PASSWORD}" "${BLUEMIX_SPACE}" "${BLUEMIX_ORG}" "${BLUEMIX_TARGET}"
 
