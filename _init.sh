@@ -118,6 +118,15 @@ fi
 popd >/dev/null
 echo -e "${label_color}Successfully installed Cloud Foundry CLI ${no_color}"
 
+################################
+# get the extensions utilities #
+################################
+pushd $EXT_DIR >/dev/null
+git clone https://github.com/Osthanes/utilities.git utilities
+export PYTHONPATH=$EXT_DIR/utilities:$PYTHONPATH
+popd >/dev/null
+source $EXT_DIR/utilities/logging_utils.sh
+
 
 ##########################################
 # setup bluemix env
@@ -208,13 +217,8 @@ else
     echo -e "${green}Successfully logged into IBM Bluemix${no_color}"
 fi 
 
-# get the extensions utilities
-pushd $EXT_DIR >/dev/null
-git clone https://github.com/Osthanes/utilities.git utilities
-export PYTHONPATH=$EXT_DIR/utilities:$PYTHONPATH
-popd >/dev/null
+
 # enable logging to logmet
-source $EXT_DIR/utilities/logging_utils.sh
 
 setup_met_logging "${BLUEMIX_USER}" "${BLUEMIX_PASSWORD}" "${BLUEMIX_SPACE}" "${BLUEMIX_ORG}" "${BLUEMIX_TARGET}"
 
