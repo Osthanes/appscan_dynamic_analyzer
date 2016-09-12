@@ -142,16 +142,16 @@ if [ $RESULT -eq 0 ]; then
 elif [ -n "$BLUEMIX_TARGET" ]; then
     # cf not setup yet, try manual setup
     if [ "$BLUEMIX_TARGET" == "staging" ]; then 
-        log_and_echo "$INFO" "Targetting staging Bluemix"
+        log_and_echo "$INFO" "Targeting staging Bluemix"
         export BLUEMIX_API_HOST="api.stage1.ng.bluemix.net"
     elif [ "$BLUEMIX_TARGET" == "prod" ]; then 
-        log_and_echo "$INFO" "Targetting production Bluemix"
+        log_and_echo "$INFO" "Targeting production Bluemix"
         export BLUEMIX_API_HOST="api.ng.bluemix.net"
     else 
         log_and_echo "$INFO" "$ERROR" "Unknown Bluemix environment specified"
     fi 
 else 
-    log_and_echo "$INFO" "Targetting production Bluemix"
+    log_and_echo "$INFO" "Targeting production Bluemix"
     export BLUEMIX_API_HOST="api.ng.bluemix.net"
 fi
 
@@ -179,7 +179,7 @@ if [ -n "$BLUEMIX_USER" ] || [ ! -f ~/.cf/config.json ]; then
         export BLUEMIX_SPACE="dev"
         echo -e "${label_color} Using ${BLUEMIX_SPACE} for Bluemix space, please set BLUEMIX_SPACE if on the environment if you wish to change this. ${no_color} "
     fi 
-    echo -e "${label_color}Targetting information.  Can be updated by setting environment variables${no_color}"
+    echo -e "${label_color}Targeting information.  Can be updated by setting environment variables${no_color}"
     echo "BLUEMIX_USER: ${BLUEMIX_USER}"
     echo "BLUEMIX_SPACE: ${BLUEMIX_SPACE}"
     echo "BLUEMIX_ORG: ${BLUEMIX_ORG}"
