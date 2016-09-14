@@ -1,5 +1,5 @@
 {
-    "id": "ibm.devops.services.pipeline.appscan.dynamic.builder",
+    "id": "ibm.devops.services.pipeline.appscan.dynamic.builder.dratest",
     "version": 1,
     "name_key": "ExtName",
     "desc_key": "ExtDesc",
@@ -104,6 +104,7 @@ callOpenToolchainAPI
 if [ $DRA_IS_PRESENT -eq 1 ]; then
     installDRADependencies
     export NPM_ROOT_DIR=`npm root`
+    echo $NPM_ROOT_DIR
 fi
 
 if [ -f ${EXT_DIR}/appscan_dyn_check.py ]; then 
