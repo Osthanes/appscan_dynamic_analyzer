@@ -103,6 +103,7 @@ callOpenToolchainAPI
         
 if [ $DRA_IS_PRESENT -eq 1 ]; then
     installDRADependencies
+    export NPM_ROOT_DIR=`npm root`
 fi
 
 if [ -f ${EXT_DIR}/appscan_dyn_check.py ]; then 
