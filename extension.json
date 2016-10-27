@@ -97,9 +97,9 @@ export WAIT_TIME=#WAIT_TIME#
 set +x 
 set +e 
 . $EXT_DIR/_init.sh
-echo "**************** TEST ****************"
+echo \"**************** TEST ****************\"
 env
-echo "**************************************"
+echo \"**************************************\"
 exit 1
         
 # Calls OTC api to determine if DRA is present.
