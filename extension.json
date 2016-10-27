@@ -1,5 +1,5 @@
 {
-    "id": "ibm.devops.services.pipeline.appscan.dynamic.builder",
+    "id": "ibm.devops.services.pipeline.appscan.dynamic.builder.dratest",
     "version": 1,
     "name_key": "ExtName",
     "desc_key": "ExtDesc",
