@@ -1,5 +1,5 @@
 {
-    "id": "ibm.devops.services.pipeline.appscan.dynamic.builder.dratest",
+    "id": "ibm.devops.services.pipeline.appscan.dynamic.builder",
     "version": 1,
     "name_key": "ExtName",
     "desc_key": "ExtDesc",
@@ -97,10 +97,6 @@ export WAIT_TIME=#WAIT_TIME#
 set +x 
 set +e 
 . $EXT_DIR/_init.sh
-echo \"**************** TEST ****************\"
-env
-echo \"**************************************\"
-exit 1
         
 # Calls OTC api to determine if DRA is present.
 callOpenToolchainAPI
