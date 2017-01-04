@@ -53,8 +53,8 @@ do
     export DRA_SUMMARY_FILE="$EXT_DIR/${fullReport%.xml}.json"
 
     # upload the full appscan report
-    dra_commands "${DRA_LOG_FILE}" "${fullReport}" "codescan"
+    #dra_commands "${DRA_LOG_FILE}" "${fullReport}" "codescan"
     # upload the summary appscan report
-    dra_commands "${DRA_SUMMARY_FILE}" "${fullReport%.xml}.json" "codescansummary"
+    dra_commands "${DRA_SUMMARY_FILE}" "${fullReport%.xml}.json" "dynamicsecurityscan"
     
 done
