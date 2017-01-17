@@ -458,7 +458,8 @@ def wait_for_scans (joblist):
                                             'high_severity_issues': int(str(scan["LatestExecution"]["NHighIssues"])),
                                             'medium_severity_issues': int(str(scan["LatestExecution"]["NMediumIssues"])),
                                             'low_severity_issues': int(str(scan["LatestExecution"]["NLowIssues"])),
-                                            'info_severity_issues': int(str(scan["LatestExecution"]["NInfoIssues"]))}
+                                            'info_severity_issues': int(str(scan["LatestExecution"]["NInfoIssues"])),
+                                            'url': dash}
                             get_appscan_xml_report(scan)
                             save_job_result(scan["Name"], job_result)
                         
